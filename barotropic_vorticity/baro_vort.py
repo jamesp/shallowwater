@@ -46,9 +46,15 @@ values for (u, v) which will then be used to evaluate nonlinear terms.
 import numpy as np
 from numpy import pi, cos, sin
 
-import pyfftw
-from pyfftw.interfaces.numpy_fft import fftshift, fftn, ifftn
-pyfftw.interfaces.cache.enable()
+try:
+    import pyfftw
+    from pyfftw.interfaces.numpy_fft import fftshift, fftn, ifftn
+    pyfftw.interfaces.cache.enable()
+    PYFFTW = True
+except:
+    print("WARNING: pyfftw not available.  Falling back to numpy")
+    from numpy.fft import fftshift, fftn, ifftn
+    PYFFTW = False
 
 ### CONSTANTS
 N = 128         # numerical resolution
@@ -139,7 +145,10 @@ n2 = n+2 - n1;
 ### INITIAL CONDITIONS
 # initialize the vorticity field
 # using FFTW array for speed
-z = pyfftw.n_byte_align_empty((nx, nx), 16, 'complex128')
+if PYFFTW:
+    z = pyfftw.n_byte_align_empty((nx, nx), 16, 'complex128')
+else:
+    z = np.zeros((nx, ny), dtype=np.complex128)
 z[:] = 0
 
 # single spot of max val 2.0 in lower half of plane
