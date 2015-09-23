@@ -56,19 +56,21 @@ except:
     from numpy.fft import fftshift, fftn, ifftn
     PYFFTW = False
 
-### CONSTANTS
+### PARAMETERS
 N = 128         # numerical resolution
+IC = 'spot'
+AA_FAC = N / 6  # anti-alias factor.  AA_FAC = N : no anti-aliasing
+                #                     AA_FAC = 0 : no non-lin waves retained
 
-ubar = 0.01
-beta = 1.7
-
+ubar = 0.00     # background zonal velocity
+beta = 1.7      # beta-plane f = f0 + βy
+tau = 0.1       # coefficient of dissipation
 
 ALLOW_SPEEDUP = False        # if True, allow the simulation to take a larger
 SPEEDUP_AT_C  = 0.6          # timestep when the Courant number drops below
                              # this parameter SPEEDUP_AT_C
 SLOWDN_AT_C = 0.8            # take smaller timesteps if Courant number
                              # is bigger than SLOWDN_AT_C
-
 
 def raw_filter(prev, curr, new, nu=0.01):
     """Robert-Asselin Filter."""
@@ -81,6 +83,10 @@ def courant_number(psix, psiy, dx, dt):
     maxvel = maxu + maxv;
     return maxvel*dt/dx;
 
+def leapfrog(phi, f, dt):
+    """Leapfrog time integration."""
+    return phi + 2.0*dt*f
+
 def ft(phi):
     """Go from physical space to spectral space."""
     return fftshift(fftn(phi, axes=(0,1)))
@@ -90,137 +96,72 @@ def ift(psi):
     return ifftn(fftshift(psi), axes=(0,1))
 
 def enstrophy(zt):
-    return 0.5*zt*np.conj(zt)
+    """Calculate the enstrophy from transformed vorticity field."""
+    return np.real(0.5*zt*np.conj(zt))
+
+ICS = {}
+def initial(name):
+    """Decorate a function as an initial condition"""
+    ic_name = name
+    def register_ic(fn):
+        ICS[name] = fn
+        return fn
+    return register_ic
 
 
+# create some initial condition functions
+@initial('random')
+def random_ic(z):
+    z[:] = 2*np.random.random(z.shape) - 1
+
+@initial('spot')
+def spot_ic(z):
+    # single spot of max val 2.0 in lower half of plane
+    d = int(z.shape[0] / 4.0)
+    i, j = np.indices(z.shape)
+    ppxy = np.abs(d - i)**2 + np.abs(d*2 - j)**2
+    dist = np.sqrt(ppxy)
+    z[dist < d] = (2.0*cos(0.5 * pi * (d - dist) / d + 0.5*pi)**2)[dist < d]
 
 
-nx = ny = n = N
+def grad(phit):
+    """Returns the spatial derivatives of a Fourier transformed variable.
+    Returns (∂/∂x[F[φ]], ∂/∂y[F[φ]]) i.e. (ik F[φ], il F[φ])"""
+    phixt = ik*phit        # d/dx F[φ] = ik F[φ]
+    phiyt = il*phit        # d/dy F[φ] = il F[φ]
+    return (phixt, phiyt)
 
+def velocity(psit):
+    """Returns the velocity field (u, v) from F[ψ]."""
+    psixt, psiyt = grad(psit)
+    psix = ift(psixt)    # v = - ∂/∂x[ψ]
+    psiy = ift(psiyt)    # u =   ∂/∂y[ψ]
+    return (psiy, -psix)
 
+def anti_alias(phit, k_max):
+    """Set the coefficients of wavenumbers > k_max to be zero."""
+    phit[(np.abs(kk) >= k_max) | (np.abs(ll) >= k_max)] = 0.0
 
-
-
-
-## Physical Domain
-domain = 1.0
-dx = domain / nx
-dy = domain / ny
-dt = 0.4 * 16.0 / nx
-
-x = np.arange(0, domain, dx)
-y = np.arange(0, domain, dy)
-i, j = np.indices((nx, ny))
-
-## Spectral Domain
-dk = 2.0*pi/domain;
-k = np.arange(-n/2, n/2)*dk
-l = np.arange(-n/2, n/2)*dk
-
-si, sj = np.indices((len(k), len(l)))
-kk, ll = np.meshgrid(k, l)
-ksq = kk**2 + ll**2
-ksq[64, 64] = 1.0   # avoid divide by zero
-rksq = 1.0 / ksq
-
-dbdx = 1j*kk;
-dbdy = 1j*ll;
-
-
-
-
-# dissipation
-tau = 0.5
-nu = (((domain)/(np.floor(n/3)*2.0*pi))**4)/tau
-del4 = 1.0 / (1.0 + nu*ksq**2*dt)      # dissipate at small scales
-
-# Range of indices for anti-aliasing of nonlinear effects
-# - the coefficients of these wavenumbers will be set to zero
-n1 = np.ceil(n/6)+1;
-n2 = n+2 - n1;
-
-
-
-
-### INITIAL CONDITIONS
-# initialize the vorticity field
-# using FFTW array for speed
-if PYFFTW:
-    z = pyfftw.n_byte_align_empty((nx, nx), 16, 'complex128')
-else:
-    z = np.zeros((nx, ny), dtype=np.complex128)
-z[:] = 0
-
-# single spot of max val 2.0 in lower half of plane
-d = n / 4.0
-ppxy = np.abs(d - i)**2 + np.abs(d*2 - j)**2
-dist = np.sqrt(ppxy)
-z[dist < d] = (2.0*cos(0.5 * pi * (d - dist) / d + 0.5*pi)**2)[dist < d]
-
-
-### SETUP
-
-# transform to spectral space
-zt = ft(z)
-_zt = zt_ = zt   # set initial previous value
-
-# Poisson equation for streamfunction and vorticity
-# $\zeta = \nabla^2 \psi$
-# Using the Fourier form
-# $\psi = a_k(t) \exp(\imag (k x + l y))$
-# => $\zeta = -(k^2 + l^2) \psi
-psit = -rksq * zt    # F[\psi] = - F[\zeta] / (k^2 + l^2)
-psixt = dbdx * psit  # d/dx F[\psi] = ik F[\psi]
-psiyt = dbdy * psit  # d/dy F[\psi] = ik F[\psi]
-
-psix = ift(psixt)    # v = - \psi_x
-psiy = ift(psiyt)    # u = \psi_y
-
-# initial enstrophy spectrum
-zz0 = zz = enstrophy(zt)
-ee0 = zz*rksq
-
-
-
-
-### SETUP
-
-
-def step(zt, _zt, dt):
-    """Take current and previous values of F[zeta] and integrate one timestep."""
-    psit = -rksq*zt
-    psixt = dbdx*psit
-    psiyt = dbdy*psit
-    zxt = dbdx*zt
-    zyt = dbdy*zt
-
-    # transform back to physical space
-    z =    ift(zt)
-    psix = ift(psixt)
-    psiy = ift(psiyt)
-    zx =   ift(zxt)
-    zy =   ift(zyt)
-
-
-
-## INTEGRATE
 def integrate():
     global _zt, zt, zt_, z, dt
-    # calculate derivatives of psi in spectral space
-    psit = -rksq*zt
-    psixt = dbdx*psit
-    psiyt = dbdy*psit
-    zxt = dbdx*zt
-    zyt = dbdy*zt
+    # Poisson equation for streamfunction and vorticity
+    #    ζ = ∆ψ
+    # Using the Fourier form
+    #    ψ = a_k(t) exp(i (k x + l y))
+    # => ζ = -(k^2 + l^2) ψ
 
-    # transform back to physical space
+    psit = -rksq * zt    # F[ψ] = - F[ζ] / (k^2 + l^2)
+    psixt, psiyt = grad(psit)
+    zxt, zyt = grad(zt)
+
+    # transform back to physical space for pseudospectral part
     z =    ift(zt)
     psix = ift(psixt)
     psiy = ift(psiyt)
     zx =   ift(zxt)
     zy =   ift(zyt)
 
-    # check Courant number is within bounds
+    # check Courant number is within bounds and adjust if neccesary
     c = courant_number(psix, psiy, dx, dt)
     if c > SLOWDN_AT_C:
         print('DEBUG: Courant No > 0.8, reducing timestep')
@@ -229,26 +170,87 @@ def integrate():
         print('DEBUG: Courant No < 0.6, increasing timestep')
         dt = 1.1*dt
 
-    # calculate the Jacobian in real space
+    # calculate the Jacobian in real space 
     jac = psix * zy - psiy * zx + ubar * zx
 
     # transform jacobian to spectral space
     jact = ft(jac)
 
     # avoid aliasing by eliminating short wavelengths
-    jact[:n1, :] = 0.0
-    jact[n2:, :] = 0.0
-    jact[:, :n1] = 0.0
-    jact[:, n2:] = 0.0
+    anti_alias(jact, k_max)
+
+    
 
     # take a timestep
-    zt_ = _zt - 2.0*dt*jact - 2.0*dt*beta*psixt
-    zt_ = zt_ * del4  # dissipation
+    rhs = -jact - beta*psixt
+    zt_ = leapfrog(_zt, rhs, dt)
+    zt_ = zt_ * del4               # dissipation
 
     # RAW filter in time
     _zt = raw_filter(_zt, zt, zt_)
     zt = zt_
     return c
+
+
+
+### SETUP
+
+## Physical Domain
+domain = 1.0
+nx = ny = n = N               # for simplicity use a square domain
+dx = domain / nx
+dy = domain / ny
+dt = 0.4 * 16.0 / nx          # choose an initial dt. This will change
+                              # as the simulation progresses to maintain
+                              # numerical stability
+
+## Spectral Domain
+dk = 2.0*pi/domain;
+k = np.arange(-n/2, n/2)*dk
+l = np.arange(-n/2, n/2)*dk
+
+kk, ll = np.meshgrid(k, l)
+ksq = kk**2 + ll**2
+ksq[ksq == 0] = 1.0   # avoid divide by zero - set ksq = 1 at zero wavenum
+rksq = 1.0 / ksq      # reciprocal 1/(k^2 + l^2)
+
+ik = 1j*kk
+il = 1j*ll
+
+
+## Dissipation & Anti-Aliasing
+nu = (((domain)/(np.floor(n/3)*2.0*pi))**4)/tau
+del4 = 1.0 / (1.0 + nu*ksq**2*dt)      # dissipate at small scales
+
+k_max = AA_FAC*2*dk    # anti-aliasing removes wavenumbers > k_max
+                       # from the non-linear term
+
+
+# initialize the vorticity field
+# using FFTW array for speed if it is available
+if PYFFTW:
+    z = pyfftw.n_byte_align_empty((nx, nx), 16, 'complex128')
+else:
+    z = np.zeros((nx, ny), dtype=np.complex128)
+z[:] = 0
+
+# apply the initial condition to z
+ic_fn = ICS.get(IC)
+if ic_fn is None:
+    raise Error('Unknown initial condition "%r"' % IC)
+ic_fn(z)        # set the vorticity using an initial condition    
+
+
+
+# calculate initial transform
+zt = ft(z)
+_zt = zt_ = zt   # set initial previous value (_zt)
+                 # and initial next value (zt_) to
+                 # be the same as current value
+
+e0 = np.sum(enstrophy(zt))  # intial enstrophy
+print("Initial Enstrophy: %.3g" % e0)
+
 
 
 ### PLOT
@@ -257,7 +259,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 fig = plt.figure()
 ax = fig.add_subplot(111)
-im = ax.imshow(np.real(z))
+im = ax.imshow(np.real(z), cmap=plt.cm.seismic)
 fig.show()
 time.sleep(0.2)
 t = 0
@@ -270,6 +272,8 @@ while True:
         print 'Steps per second: %.2f' % sps
         timeit = time.time()
     c = integrate()
-    ax.set_title('[Courant No: %3.2f] dt=%4.3f' % (c, dt))
-    im.set_data(np.real(z))
-    im.axes.figure.canvas.draw()
+    if (t % 10) == 0:
+        ax.set_title('[Courant No: %3.2f] dt=%4.3f' % (c, dt))
+        im.set_data(np.real(z))
+        im.axes.figure.canvas.draw()
+ 
