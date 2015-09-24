@@ -71,6 +71,7 @@ SPEEDUP_AT_C  = 0.6          # timestep when the Courant number drops below
                              # this parameter SPEEDUP_AT_C
 SLOWDN_AT_C = 0.8            # take smaller timesteps if Courant number
                              # is bigger than SLOWDN_AT_C
+SHOW_CHART = True
 
 def raw_filter(prev, curr, new, nu=0.01):
     """Robert-Asselin Filter."""
@@ -109,7 +110,7 @@ def initial(name):
     return register_ic
 
 
-# create some initial condition functions
+# Some initial condition functions
 @initial('random')
 def random_ic(z):
     z[:] = 2*np.random.random(z.shape) - 1
@@ -255,16 +256,17 @@ print("Initial Enstrophy: %.3g" % e0)
 
 ### PLOT
 import time
-import matplotlib
-import matplotlib.pyplot as plt
-fig = plt.figure()
-ax = fig.add_subplot(111)
-im = ax.imshow(np.real(z), cmap=plt.cm.seismic)
-fig.show()
-time.sleep(0.2)
+if SHOW_CHART:
+    import matplotlib
+    import matplotlib.pyplot as plt
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    im = ax.imshow(np.real(z), cmap=plt.cm.seismic)
+    fig.show()
+    time.sleep(0.2)
 t = 0
 timeit = time.time()
-while True:
+while t < 10000:
     t = t + 1
     if (t % 100) == 0:
         print 'Step: %d' % t
@@ -272,7 +274,7 @@ while True:
         print 'Steps per second: %.2f' % sps
         timeit = time.time()
     c = integrate()
-    if (t % 10) == 0:
+    if (t % 10) == 0 and SHOW_CHART:
         ax.set_title('[Courant No: %3.2f] dt=%4.3f' % (c, dt))
         im.set_data(np.real(z))
         im.axes.figure.canvas.draw()
