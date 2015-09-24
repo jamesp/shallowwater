@@ -90,11 +90,11 @@ def leapfrog(phi, f, dt):
 
 def ft(phi):
     """Go from physical space to spectral space."""
-    return fftshift(fftn(phi, axes=(0,1)))
+    return fftn(phi, axes=(0,1))
 
 def ift(psi):
     """Go from spectral space to physical space."""
-    return ifftn(fftshift(psi), axes=(0,1))
+    return ifftn(psi, axes=(0,1))
 
 def enstrophy(zt):
     """Calculate the enstrophy from transformed vorticity field."""
@@ -210,7 +210,7 @@ dk = 2.0*pi/domain;
 k = np.arange(-n/2, n/2)*dk
 l = np.arange(-n/2, n/2)*dk
 
-kk, ll = np.meshgrid(k, l)
+kk, ll = [fftshift(q) for q in np.meshgrid(k, l)]  # put in FFT order
 ksq = kk**2 + ll**2
 ksq[ksq == 0] = 1.0   # avoid divide by zero - set ksq = 1 at zero wavenum
 rksq = 1.0 / ksq      # reciprocal 1/(k^2 + l^2)
