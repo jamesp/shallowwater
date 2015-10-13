@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """beta plane barotropic vorticity model.
 
-This script uses a pseudospectral method to solve the barotropic vorticity 
+This script uses a pseudospectral method to solve the barotropic vorticity
 equation in two dimensions
 
     D/Dt[ω] = 0                                                             (1)
@@ -63,7 +63,7 @@ AA_FAC = N / 6  # anti-alias factor.  AA_FAC = N : no anti-aliasing
                 #                     AA_FAC = 0 : no non-lin waves retained
 
 ubar = 0.00     # background zonal velocity
-beta = 1.7      # beta-plane f = f0 + βy
+beta = 0.0      # beta-plane f = f0 + βy
 tau = 0.1       # coefficient of dissipation
 
 ALLOW_SPEEDUP = False        # if True, allow the simulation to take a larger
@@ -124,7 +124,6 @@ def spot_ic(z):
     dist = np.sqrt(ppxy)
     z[dist < d] = (2.0*cos(0.5 * pi * (d - dist) / d + 0.5*pi)**2)[dist < d]
 
-
 def grad(phit):
     """Returns the spatial derivatives of a Fourier transformed variable.
     Returns (∂/∂x[F[φ]], ∂/∂y[F[φ]]) i.e. (ik F[φ], il F[φ])"""
@@ -171,7 +170,7 @@ def integrate():
         print('DEBUG: Courant No < 0.6, increasing timestep')
         dt = 1.1*dt
 
-    # calculate the Jacobian in real space 
+    # calculate the Jacobian in real space
     jac = psix * zy - psiy * zx + ubar * zx
 
     # transform jacobian to spectral space
@@ -180,7 +179,7 @@ def integrate():
     # avoid aliasing by eliminating short wavelengths
     anti_alias(jact, k_max)
 
-    
+
 
     # take a timestep
     rhs = -jact - beta*psixt
@@ -239,7 +238,7 @@ z[:] = 0
 ic_fn = ICS.get(IC)
 if ic_fn is None:
     raise Error('Unknown initial condition "%r"' % IC)
-ic_fn(z)        # set the vorticity using an initial condition    
+ic_fn(z)        # set the vorticity using an initial condition
 
 
 
@@ -269,13 +268,12 @@ timeit = time.time()
 while t < 10000:
     t = t + 1
     if (t % 100) == 0:
-        print 'Step: %d' % t
+        print('Step: %d' % t)
         sps = 100 / (time.time() - timeit)
-        print 'Steps per second: %.2f' % sps
+        print('Steps per second: %.2f' % sps)
         timeit = time.time()
     c = integrate()
     if (t % 10) == 0 and SHOW_CHART:
         ax.set_title('[Courant No: %3.2f] dt=%4.3f' % (c, dt))
         im.set_data(np.real(z))
         im.axes.figure.canvas.draw()
- 
