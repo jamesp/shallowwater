@@ -41,6 +41,12 @@ and as such spatial derivatives can be calculated analytically
 The pseudospectral method will use the analytic derivatives to calculate
 values for (u, v) which will then be used to evaluate nonlinear terms.
 
+
+References:
+This code was developed based on a MATLAB script bvebb.m
+and the GFDL documentation for spectral barotropic models
+found here [http://www.gfdl.noaa.gov/cms-filesystem-action/user_files/pjp/barotropic.pdf]
+McWilliams Initial Condition inspired by pyqg [https://github.com/pyqg/pyqg]
 """
 
 import numpy as np
@@ -124,6 +130,7 @@ def spot_ic(z):
     dist = np.sqrt(ppxy)
     z[dist < d] = (2.0*cos(0.5 * pi * (d - dist) / d + 0.5*pi)**2)[dist < d]
 
+# TODO: This code is incomplete
 @initial('mcwilliams')
 def mcwilliams_ic(z):
     # initial condition taken from [McWilliams 1984]
