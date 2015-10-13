@@ -63,7 +63,7 @@ AA_FAC = N / 6  # anti-alias factor.  AA_FAC = N : no anti-aliasing
                 #                     AA_FAC = 0 : no non-lin waves retained
 
 ubar = 0.00     # background zonal velocity
-beta = 0.0      # beta-plane f = f0 + βy
+beta = 1.7      # beta-plane f = f0 + βy
 tau = 0.1       # coefficient of dissipation
 
 ALLOW_SPEEDUP = False        # if True, allow the simulation to take a larger
@@ -123,6 +123,22 @@ def spot_ic(z):
     ppxy = np.abs(d - i)**2 + np.abs(d*2 - j)**2
     dist = np.sqrt(ppxy)
     z[dist < d] = (2.0*cos(0.5 * pi * (d - dist) / d + 0.5*pi)**2)[dist < d]
+
+@initial('mcwilliams')
+def mcwilliams_ic(z):
+    # initial condition taken from [McWilliams 1984]
+    # > Gaussian random realisation for each Fourier component of ψ
+    # > where at each vector wavenumber the ensemble variance is
+    # > proportional to
+    # > k^-1 (1 + (k/k0)^4)^-1  for k > 0
+    K0 = 6.0
+    zt = ft(z)
+    nk, nl = zt.shape
+    K = np.sqrt(ksq)
+    kappa = K**-1 * (1.0 + (K / K0)**4)**-1
+    Pi_hat = np.random.randn((nk, nl))*kappa + 1j*np.random.randn((nk, nl))*kappa
+    Pi = ift(Pi_hat)
+    Pi = Pi - Pi.mean()
 
 def grad(phit):
     """Returns the spatial derivatives of a Fourier transformed variable.
