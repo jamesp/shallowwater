@@ -201,8 +201,8 @@ def integrate():
     # calculate the Jacobian in real space
     jac = psix * zy - psiy * zx + ubar * zx
 
-# transform jacobian to spectral space
-jact = ft(jac)
+    # transform jacobian to spectral space
+    jact = ft(jac)
     
     # avoid aliasing by eliminating short wavelengths
     anti_alias(jact, k_max)
