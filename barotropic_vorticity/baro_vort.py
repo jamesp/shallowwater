@@ -71,6 +71,7 @@ AA_FAC = N / 6  # anti-alias factor.  AA_FAC = N : no anti-aliasing
 ubar = 0.00     # background zonal velocity
 beta = 1.7      # beta-plane f = f0 + βy
 tau = 0.1       # coefficient of dissipation
+num_timesteps = 100
 
 ALLOW_SPEEDUP = False        # if True, allow the simulation to take a larger
 SPEEDUP_AT_C  = 0.6          # timestep when the Courant number drops below
@@ -78,6 +79,9 @@ SPEEDUP_AT_C  = 0.6          # timestep when the Courant number drops below
 SLOWDN_AT_C = 0.8            # take smaller timesteps if Courant number
 # is bigger than SLOWDN_AT_C
 SHOW_CHART = True
+
+STORE_DATA = True
+data_interval = 10. #After how many timesteps should the data be saved 
 
 def raw_filter(prev, curr, new, nu=0.01):
     """Robert-Asselin Filter."""
@@ -286,6 +290,12 @@ print("Initial Enstrophy: %.3g" % e0)
 
 tot_vort = tot_vort_calc(np.real(z),y_arr,beta)
 
+### data_store_initialise
+
+if STORE_DATA:
+   z_store=np.zeros((np.ceil(num_timesteps/data_interval)+1,nx,ny))
+
+
 ### PLOT
 import time
 if SHOW_CHART:
@@ -299,7 +309,7 @@ if SHOW_CHART:
 #    time.sleep(0.2)
 t = 0
 timeit = time.time()
-while t < 10000:
+while t < num_timesteps:
     t = t + 1
     if (t % 100) == 0:
         print('Step: %d' % t)
@@ -313,3 +323,5 @@ while t < 10000:
         im.set_data(np.real(tot_vort))
         im.axes.figure.canvas.draw()
         plt.pause(0.001)
+    if STORE_DATA and (t % data_interval) == 0:
+       z_store[np.floor(t/data_interval),:,:]=np.real(z)
