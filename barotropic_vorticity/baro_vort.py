@@ -64,14 +64,14 @@ except:
 
 ### PARAMETERS
 N = 128         # numerical resolution
-IC = 'spot'
+IC = 'rwave'
 AA_FAC = N / 6  # anti-alias factor.  AA_FAC = N : no anti-aliasing
 #                     AA_FAC = 0 : no non-lin waves retained
 
 ubar = 0.00     # background zonal velocity
 beta = 1.7      # beta-plane f = f0 + βy
 tau = 0.1       # coefficient of dissipation
-num_timesteps = 100
+num_timesteps = 1000
 
 ALLOW_SPEEDUP = False        # if True, allow the simulation to take a larger
 SPEEDUP_AT_C  = 0.6          # timestep when the Courant number drops below
@@ -133,6 +133,17 @@ def spot_ic(z):
     ppxy = np.abs(d - i)**2 + np.abs(d*2 - j)**2
     dist = np.sqrt(ppxy)
     z[dist < d] = (2.0*cos(0.5 * pi * (d - dist) / d + 0.5*pi)**2)[dist < d]
+
+@initial('rwave')
+def rwave_ic(z):
+    # Small amplitude Rossby wave with single wavenumber.
+    amp = 20.
+    ichoice=12
+    jchoice=0
+    zt=ft(z)    
+    zt[jchoice,ichoice]=amp
+    z[:] = ift(zt)
+    
 
 # TODO: This code is incomplete
 @initial('mcwilliams')
@@ -278,7 +289,6 @@ if ic_fn is None:
 ic_fn(z)        # set the vorticity using an initial condition
 
 
-
 # calculate initial transform
 zt = ft(z)
 _zt = zt_ = zt   # set initial previous value (_zt)
@@ -303,7 +313,7 @@ if SHOW_CHART:
     import matplotlib.pyplot as plt
     fig = plt.figure()
     ax = fig.add_subplot(111)
-    im = ax.imshow(np.real(tot_vort), cmap=plt.cm.seismic,origin='lower')
+    im = ax.imshow(np.real(z), cmap=plt.cm.seismic,origin='lower')
     fig.show()
     plt.pause(0.001)
 #    time.sleep(0.2)
@@ -319,8 +329,8 @@ while t < num_timesteps:
     c = integrate()
     tot_vort = tot_vort_calc(np.real(z),y_arr,beta)
     if (t % 10) == 0 and SHOW_CHART:
-        ax.set_title('Total vorticity [Courant No: %3.2f] dt=%4.3f' % (c, dt))
-        im.set_data(np.real(tot_vort))
+        ax.set_title('Relative vorticity [Courant No: %3.2f] dt=%4.3f' % (c, dt))
+        im.set_data(np.real(z))
         im.axes.figure.canvas.draw()
         plt.pause(0.001)
     if STORE_DATA and (t % data_interval) == 0:
