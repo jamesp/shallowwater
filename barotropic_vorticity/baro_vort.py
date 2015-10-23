@@ -43,10 +43,11 @@ values for (u, v) which will then be used to evaluate nonlinear terms.
 
 
 References:
-This code was developed based on a MATLAB script bvebb.m
-and the GFDL documentation for spectral barotropic models
-found here [http://www.gfdl.noaa.gov/cms-filesystem-action/user_files/pjp/barotropic.pdf]
-McWilliams Initial Condition inspired by pyqg [https://github.com/pyqg/pyqg]
+* This code was developed based on a MATLAB script bvebb.m
+  (Original source Dr. James Kent & Prof. John Thuburn)
+* And the GFDL documentation for spectral barotropic models
+  found here [http://www.gfdl.noaa.gov/cms-filesystem-action/user_files/pjp/barotropic.pdf]
+*McWilliams Initial Condition inspired by pyqg [https://github.com/pyqg/pyqg]
 """
 
 import numpy as np
