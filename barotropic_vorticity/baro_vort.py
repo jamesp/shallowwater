@@ -64,7 +64,7 @@ except:
 
 ### PARAMETERS
 N = 128         # numerical resolution
-IC = 'rwave'
+IC = 'random'
 AA_FAC = N / 6  # anti-alias factor.  AA_FAC = N : no anti-aliasing
 #                     AA_FAC = 0 : no non-lin waves retained
 
@@ -137,8 +137,8 @@ def spot_ic(z):
 @initial('rwave')
 def rwave_ic(z):
     # Small amplitude Rossby wave with single wavenumber.
-    amp = 20.
-    ichoice=12
+    amp = 0.5
+    ichoice=3
     jchoice=0
     zt=ft(z)    
     zt[jchoice,ichoice]=amp
@@ -313,7 +313,8 @@ if SHOW_CHART:
     import matplotlib.pyplot as plt
     fig = plt.figure()
     ax = fig.add_subplot(111)
-    im = ax.imshow(np.real(z), cmap=plt.cm.seismic,origin='lower')
+#     im = ax.imshow(np.real(z), cmap=plt.cm.seismic,origin='lower')
+    im = ax.imshow(tot_vort, cmap=plt.cm.seismic,origin='lower')
     fig.show()
     plt.pause(0.001)
 #    time.sleep(0.2)
@@ -330,7 +331,8 @@ while t < num_timesteps:
     tot_vort = tot_vort_calc(np.real(z),y_arr,beta)
     if (t % 10) == 0 and SHOW_CHART:
         ax.set_title('Relative vorticity [Courant No: %3.2f] dt=%4.3f' % (c, dt))
-        im.set_data(np.real(z))
+#         im.set_data(np.real(z))
+        im.set_data(tot_vort)
         im.axes.figure.canvas.draw()
         plt.pause(0.001)
     if STORE_DATA and (t % data_interval) == 0:
