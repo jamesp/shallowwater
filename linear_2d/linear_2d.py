@@ -10,8 +10,8 @@
 
 h = H + η
 
-∂/∂t[u] + fv = - g ∂/∂x[η]
-∂/∂t[v] - fu = - g ∂/∂y[η]
+∂/∂t[u] - fv = - g ∂/∂x[η]
+∂/∂t[v] + fu = - g ∂/∂y[η]
 ∂/∂t[h] + H(∂/∂x[u] + ∂/∂y[v]) = 0
 
 f = f0 + βy
@@ -114,13 +114,13 @@ class LinearShallowWater(object):
         
         hx = self._periodicl(self.h)
         dhdx = self.diffx(hx)
-        u_rhs = -self.f*vv - self.g*dhdx
+        u_rhs = self.f*vv - self.g*dhdx
         u_rhs = self._periodicr(u_rhs) #+ self.r*self.u
         
         hl, hr, ht, hb = self._hbc()
         hy = np.hstack([hb[:, np.newaxis], self.h, ht[:, np.newaxis]])
         dhdy = self.diffy(hy)
-        v_rhs = self.f*uu - self.g*dhdy #+ self.r*self.v
+        v_rhs = -self.f*uu - self.g*dhdy #+ self.r*self.v
         return np.array([u_rhs, v_rhs, h_rhs])
 
 
@@ -146,44 +146,44 @@ class LinearShallowWater(object):
 
 
 
-nx=320
-ny=320
-sw = LinearShallowWater(nx, ny, f=0.01, maxt=1000.0)
+if __name__ == '__main__':
+    nx=320
+    ny=320
+    sw = LinearShallowWater(nx, ny, f=0.1, maxt=1000.0)
 
 
-i, j = np.indices(sw.h.shape)
-sw.h[:] = np.exp(-(np.sqrt((j - ny/2.0)**2 + (i - nx/2.0)**2)/20)**2)*10
-#sw.h[:] = np.random.random(sw.h.shape)*sw.H*0.1
+    i, j = np.indices(sw.h.shape)
+    sw.h[:] = np.exp(-(np.sqrt((j - ny/2.0)**2 + (i - nx/2.0)**2)/20)**2)*sw.H*0.01
+    #sw.h[:] = np.random.random(sw.h.shape)*sw.H*0.01
+    #sw.h[:] = np.sin(np.pi*10*j/ny)*np.sin(np.pi*11*i/nx)*10
+    steps = 0
 
-def take_step():
-        sw.step()
-        print('step %f: Max vel. %.3g' % (sw.t, np.max(sw.u)))
-        print('max h: %.3g' % np.max(sw.h))
-        im1.set_data(sw.h.T)
-        im2.set_data(sw.u.T)
+    import time
+    if SHOW_CHART:
+        import matplotlib
+        import matplotlib.pyplot as plt
+        fig = plt.figure(figsize=(12,12))
+        ax = fig.add_subplot(211)
+        im1 = ax.imshow(sw.h.T, cmap=plt.cm.seismic)
+        im1.set_clim((-10, 10))
+        plt.colorbar(im1)
 
-        #im1.set_clim((np.min(sw.h), np.max(sw.h)))
-        im2.set_clim((np.min(sw.u), np.max(sw.u)))
-        im1.axes.figure.canvas.draw()
-        im2.axes.figure.canvas.draw()
-        plt.pause(0.0001)
+        ax = fig.add_subplot(212)
+        im2 = ax.imshow(sw.u.T, cmap=plt.cm.seismic)
 
-
-import time
-if SHOW_CHART:
-    import matplotlib
-    import matplotlib.pyplot as plt
-    fig = plt.figure(figsize=(12,12))
-    ax = fig.add_subplot(211)
-    im1 = ax.imshow(sw.state[2].T, cmap=plt.cm.seismic)
-    im1.set_clim((-5, 5))
-    plt.colorbar(im1)
-
-    ax = fig.add_subplot(212)
-    im2 = ax.imshow(sw.state[0].T, cmap=plt.cm.seismic)
-
-    plt.colorbar(im2)
-    fig.show()
-    time.sleep(1)
-    while sw.t < sw.maxt:
-        take_step()
+        plt.colorbar(im2)
+        fig.show()
+        time.sleep(1)
+        while sw.t < sw.maxt:
+            sw.step()
+            print('step %f: Max vel. %.3g' % (sw.t, np.max(sw.u)))
+            print('max h: %.3g' % np.max(sw.h))
+            if steps % 10 == 0:
+                im1.set_data(sw.h.T)
+                im2.set_data(sw.u.T)
+                #im1.set_clim((np.min(sw.h), np.max(sw.h)))
+                im2.set_clim((np.min(sw.u), np.max(sw.u)))
+                im1.axes.figure.canvas.draw()
+                im2.axes.figure.canvas.draw()
+                plt.pause(0.0001)
+            steps = steps + 1
