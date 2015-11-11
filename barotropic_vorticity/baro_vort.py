@@ -201,7 +201,7 @@ def integrate():
     jact = ft(jac)
 
     # avoid aliasing by eliminating short wavelengths
-    anti_alias(jact, k_max)
+    #anti_alias(jact, k_max)
 
 
 
