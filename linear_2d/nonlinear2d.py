@@ -22,7 +22,7 @@ class NonlinearShallowWater(LinearShallowWater):
         
         u_with_bcs = self._add_all_bcs(self.u, self._ubc())
         v_with_bcs = self._add_all_bcs(self.v, self._vbc())
-        h_with_bcs = self._add_all_bcs(self.h, self._hbc())
+        h_with_bcs = self._add_all_bcs(self.eta, self._hbc())
         
         uu, vv = self.uvatuv()
         ubar = centre_average(u_with_bcs)  # u averaged to v points with bcs
@@ -38,6 +38,7 @@ class NonlinearShallowWater(LinearShallowWater):
 
         udhdx = x_average(self.u*self.diffx(h_with_bcs[:, 1:-1]))
         vdhdy = y_average(self.v*self.diffy(h_with_bcs[1:-1, :]))
+
         nonlin_h =  - udhdx - vdhdy - self.eta * self.divergence
         nonlinear_rhs = np.array([nonlin_u, nonlin_v, nonlin_h])
         return linear_rhs + nonlinear_rhs
@@ -46,8 +47,6 @@ class NonlinearShallowWater(LinearShallowWater):
         """Returns the u velocity boundaries.
         Returns tuple (left, right, top, bottom)."""
         # # periodic in x, zero derivative on y
-        # return (self.u[-1,:], self.u[0,:], self.u[:,-1], self.u[:,0])
-        # no derivative at the boundaries
         return (self.u[-1,:], self.u[0,:], self.u[:,-1], self.u[:,0])
 
 
@@ -55,64 +54,105 @@ class NonlinearShallowWater(LinearShallowWater):
         """Returns the h boundaries.\
         Returns tuple (left, right, top, bottom)."""
         # # periodic in x, zero derivative on y
-        # return (self.eta[-1,:], self.eta[0,:], self.eta[:,-1], self.eta[:,0])
-        # no derivative at the boundaries
         return (self.eta[-1,:], self.eta[0,:], self.eta[:,-1], self.eta[:,0])
 
 
     def _vbc(self):
         """Returns the v boundary values."""
-        # no derivative at the boundaries
         return (self.v[-1,:], self.v[0,:], self.v[:,-1], self.v[:,0])  
 
 
 
 import matplotlib.pyplot as plt
+import scipy.signal
+
+def background(spectra, fsteps=10, ksteps=10):
+    """Uses a 1-2-1 filter to generate 'red noise' background field for a spectra (as per WK1998)
+        `fsteps` is the number of times to apply the filter in the frequency direction
+        `ksteps` is the number of times to apply the filter in the wavenumber direction
+    
+    Returns a background field of same dimensions as `spectra`.
+    """
+    # create a 1D 1-2-1 averaging footprint
+    bgf = spectra
+    for i in range(fsteps):
+        # repeated application of the 1-2-1 blur filter to the spectra
+        footprint = np.array([[0,1,0], [0,2,0], [0,1,0]]) / 4.0
+        bgf = scipy.signal.convolve2d(bgf, footprint, mode='same', boundary='wrap')
+    for i in range(ksteps):
+        # repeated application of the 1-2-1 blur filter to the spectra
+        footprint = np.array([[0,0,0], [1,2,1], [0,0,0]]) / 4.0
+        bgf = scipy.signal.convolve2d(bgf, footprint, mode='same', boundary='wrap')
+    
+    return bgf
+
+def remove_background(spectra):
+    """A simple background removal to eliminate frequency noise."""
+    bg = background(spectra, fsteps=10, ksteps=0)
+    return spectra - bg
+
 plt.ion()
 
-sw = NonlinearShallowWater(128, 128, dt=0.01, maxt=1000, f=1e-5, domain=(1000, 1000), H=100.0)
+sw = NonlinearShallowWater(128, 128, dt=0.01, maxt=1000, f0=0.0, beta=1e-5, domain=(1000, 1000), H=100.0)
 
-sw.eta[:] = np.random.random(sw.h.shape)*sw.H*0.1
+sw.eta[:] = np.random.random(sw.h.shape)*sw.H*0.01
 #sw.eta[40:80, 40:80] = np.exp(-(np.arange(-20, 20)[np.newaxis, :]**2 + np.arange(-20, 20)[:, np.newaxis]**2)/100)*3
-#sw.eta[:, :] = np.sin(2*np.pi*np.arange(128)/128)[:, np.newaxis]  * np.sin(2*np.pi*np.arange(128)/128)[np.newaxis, :] * 0.1
-#sw.eta[30:60, 30:60] = 1.0
-#sw.u[:] = 0.1
+#sw.eta[40:100, 40:100] = np.sin(np.pi*np.arange(60)/60)[:, np.newaxis]  * np.sin(np.pi*np.arange(60)/60)[np.newaxis, :] * sw.H*0.1
+#sw.eta[30:60, 30:60] = 10.0
+#sw.eta[20:30, 20:30] = 10.0
+#sw.u[:] = 10
 
 
 @sw.forcing
 def dissipate(m):
-    return -m.state*0.0
+    return -m.state*0.01
 
 ts = []
 us = []
 usl = []
+uspec = []
 @sw.on('step:end')
 def plot_surface(m):
     ts.append(m.t)
     us.append(np.abs(m.u.max()))
     usl.append(m.u.mean(axis=1))
+    
     if m.tc % 100 == 0:
         print(m.t)
     if m.tc % 20 == 1:
+        uspec.append(m.u.mean(axis=1))    
+        uspectra = np.fft.fftshift(np.fft.fft2(np.array(uspec)))
+        
+        
+        plt.figure(1, figsize=(8,8))
         plt.clf()
-        plt.subplot(311)
-        plt.imshow(m.eta.T)
-        #plt.clim(-1, 1)
+        plt.imshow(m.eta.T, cmap=plt.cm.seismic)
+        plt.clim(-3, 3)
         plt.colorbar()
 
-        plt.subplot(313)
-        plt.imshow(np.array(usl).T)
+        plt.figure(2, figsize=(8,8))
+        plt.clf()
+        #plt.subplot(221)
+        spec_mid=uspectra.shape[0]/2
+        spec = remove_background(uspectra)
+        plt.imshow(np.log(np.abs(spec)**2)[spec_mid:spec_mid+128, :][::-1])
+        plt.colorbar()
 
-        plt.subplot(312)
-        plt.plot(ts, us)
-        #plt.ylim(-5, 5)
+
+        # plt.subplot(313)
+        # plt.imshow(np.array(usl).T)
+
+        # plt.subplot(312)
+        # plt.plot(ts, us)
+        # #plt.ylim(-5, 5)
         plt.pause(0.01)
         plt.draw()
 
+
 @sw.diagnostic('spec_u')
-def specta(m):
-    m.tc
-    spectra = np.fft.fftn(m.u, axis=(0,1))
+def u_specta(m):
+    spectra = np.fft.fft(m.u.mean(axis=1))
+    return spectra
 
 plot_surface(sw)
 sw.run()
