@@ -37,7 +37,7 @@ class EventEmitter(object):
     def on(self, event, callback=None):
         def _on(callback):
             self._events[event].append(callback)
-            return self
+            return callback
 
         if callback is None:
             return _on           # used as a decorator
@@ -78,14 +78,10 @@ class LinearShallowWater(EventEmitter):
         self._ppdstate = self._dstate  # initialise the previous two delta states (will be overwritten once before used in Adams Bashforth)
 
         self.t = 0.0
-        self.tc = 0  # count of steps
+        self.tc = 0    # count of steps
 
-    # def add_force(self, force_fn):
-    #   """Add a forcing function to the equations."""
-    #   self._forcings.append(force_fn)
-
-    def apply_forcing(self, dstate):
-        """Apply a change to the state at this timestep."""
+    def apply_force(self, dstate):
+        """Apply a forcing to the state at this timestep."""
         self._dstates.append(dstate)
 
     def forcing(self, fn):
@@ -98,6 +94,7 @@ class LinearShallowWater(EventEmitter):
                 dstate = np.zeros_like(swmodel.state)
                 dstate[:] = -swmodel.state*0.001
                 return dstate
+
         Forcing functions should take a single argument for the model object itself,
         and return a state delta the same shape as state.
         """
@@ -113,7 +110,10 @@ class LinearShallowWater(EventEmitter):
             def pot_vort(swmodel):
                 q = np.zeros_like(swmodel.eta)
                 q[:] = calc_vorticity(swmodel) + f0
-                return q           
+                return q
+
+        Diagnostic functions take the model as a single argument and return the diagnostic
+        value at the current timestep.
         """
         def _diagnostic(fn):
             self._diagnostics[name] = fn
@@ -243,6 +243,17 @@ class LinearShallowWater(EventEmitter):
         """Add the bottom and top boundary conditions to a field."""
         return np.hstack([bbc[:, np.newaxis], phi, tbc[:, np.newaxis]])
 
+    def _add_all_bcs(self, phi, bcs):
+        l,r,t,b = bcs
+        # corners are average of nearest boundary
+        tl = 0.5*(l[-1] + t[0])
+        bl = 0.5*(l[0] + b[0])
+        tr = 0.5*(r[-1] + t[0])
+        br = 0.5*(r[0] + b[0])
+        with_lr = self._add_lr_bcs(l, phi, r)
+        with_all = self._add_tb_bcs(np.hstack([bl, b, br]), with_lr, np.hstack([tl, t, tr]))
+        return with_all
+
     def uvatuv(self):
         """Calculate the value of u at v and v at u."""
         ul, ur, ut, ub = self._ubc()       # need the boundary conditions to average u at v points
@@ -268,7 +279,7 @@ class LinearShallowWater(EventEmitter):
         u_rhs = self.f*vv - self.g*dhdx
         
         # the v equation
-        hy = np.hstack([hb[:, np.newaxis], self.eta, ht[:, np.newaxis]])
+        hy = self._add_tb_bcs(hb, self.eta, ht)
         dhdy = self.diffy(hy)
         v_rhs = -self.f*uu - self.g*dhdy
 
@@ -297,7 +308,14 @@ if __name__ == '__main__':
 
     nx=320
     ny=80
-    sw = LinearShallowWater(nx, ny, f=0.1, maxt=10000.0)
+    sw = LinearShallowWater(nx, ny, f=0.01, maxt=10000.0)
+
+    @sw.diagnostic('q')
+    def potential_vorticity(m):
+        # vorticity is calculated on grid cell corners, move to grid centres to add to 
+        zeta = centre_average(m.vorticity)  
+        return zeta - m.f*m.eta/m.H
+
 
     # set an initial condition of height discontinuity along x = Lx/2
     IC =  np.zeros_like(sw.eta)
@@ -305,6 +323,8 @@ if __name__ == '__main__':
     IC[sw.nx/2:, :] = -sw.H * 0.01
     sw.eta[:] = IC
 
+    # calculate the initial potential vorticity
+    q0 = sw.calc_diagnostic('q')
 
     @sw.on('initialise')
     def init_model(m):
@@ -315,27 +335,21 @@ if __name__ == '__main__':
 
     @sw.forcing
     def dissipate(m):
-        # add dissipation terms - basic rayleigh friction
+        # add dissipation terms - basic rayleigh friction on all fields
         dstate = -m.state*0.001
-        #m.apply_forcing(dstate)
         return dstate
 
+    # relax faster at the left and right boundaries
     rel_profile = np.concatenate([np.linspace(1, 0, nx/2), np.linspace(0,1, nx/2)])[:, np.newaxis]
     @sw.forcing
     def relax(m):
         # relax back towards the initial condition
-        # relax faster at the boundaries
         dstate = np.zeros_like(m.state)
         dstate[2] = (IC - m.eta)*rel_profile*0.1
-        #m.apply_forcing(dstate)
         return dstate
 
-    @sw.diagnostic('q')
-    def potential_vorticity(m):
-        q = centre_average(m.vorticity) - m.f*m.eta/m.H
-        return q
 
-    q0 = sw.calc_diagnostic('q')
+    
 
     def plot_hv(m):
         plt.figure(1)
@@ -344,12 +358,12 @@ if __name__ == '__main__':
         plt.plot(m.H + m.eta[:, ny/2].T)
         plt.xlabel('x')
         plt.ylabel('height (m)')
-        plt.ylim((m.H-20, m.H+20))
+        plt.ylim((m.H*0.98, m.H*1.02))
         plt.subplot(212)
         plt.plot(m.v[:, ny/2].T)
         plt.xlabel('x')
         plt.ylabel('v velocity (m.s^-2)')
-        plt.ylim((-1, 1))
+        plt.ylim((-2, 2))
         plt.pause(0.01)
         plt.draw()
 
@@ -365,7 +379,7 @@ if __name__ == '__main__':
         plt.colorbar()
 
         ts.append(m.t)
-        qs.append(np.sum(m.vorticity))
+        qs.append(np.sum(q))
         plt.subplot(212)
         plt.plot(ts, qs)
 
@@ -375,8 +389,7 @@ if __name__ == '__main__':
     @sw.on('step:end')
     def print_status(m):
         print('time %f: Max vel. %.3g' % (m.t, np.max(m.u)))
-        print('max h: %.3g' % np.max(m.eta))
-        print('vorticity: %.3g' % np.sum(m.vorticity))
+        print('total potential vorticity: %.3g' % np.sum(m.calc_diagnostic('q')))
         if m.tc % 10 == 1:
             plot_hv(m)
         if m.tc % 100 == 2:
