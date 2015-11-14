@@ -233,7 +233,7 @@ class LinearShallowWater(EventEmitter):
 
         uu = self._add_tb_bcs(ub, self.u, ut)
         vv = self._add_lr_bcs(vl, self.v, vr)
-        return self.diffy(uu) - self.diffx(vv)
+        return self.diffx(vv) - self.diffy(uu)
 
     def _add_lr_bcs(self, lbc, phi, rbc):
         """Add the left and right boundary conditions to a field."""
