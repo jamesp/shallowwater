@@ -51,22 +51,32 @@ class EventEmitter(object):
 
 class LinearShallowWater(EventEmitter):
     """A model of the two-dimensional linearised shallow water equations"""
-    def __init__(self, nx, ny, f=1.0, r=0.01, dt=0.1, maxt=1.0, domain=(10000.0, 10000.0), H=1000.0, g=9.8):
+    def __init__(self, nx, ny, f0=1.0, beta=0.0, r=0.01, dt=0.1, maxt=1.0, domain=(10000.0, 10000.0), H=1000.0, g=9.8):
         super(LinearShallowWater, self).__init__()
         self.nx = nx
         self.ny = ny
         self.dt = dt
-        self.f  = f
+        self.f0  = f0
+        self.beta = beta  # TODO: Implement beta plane
         self.maxt = maxt
         self.domain = domain
-        self.dx = domain[0] / nx
-        self.dy = domain[1] / ny
+        self.dx = dx = domain[0] / nx
+        self.dy = dy = domain[1] / ny
         self.H  = H
         self.u = np.zeros((nx+1, ny))
         self.v = np.zeros((nx, ny+1))    # v points are on horizontal edges so there exists an extra point from the last vertex
         self.eta = np.zeros((nx, ny))
         self.r = r
         self.g = g
+
+        # the positions of u, v and h nodes on the grid
+        self._ux = np.linspace(0, domain[0], nx+1)[:, np.newaxis]
+        self._uy = dy/2.0 + np.linspace(0, domain[0], ny)[np.newaxis, :]
+        self._vx = dx/2.0 + np.linspace(0, domain[1], nx)[:, np.newaxis]
+        self._vy = dy/2.0 + np.linspace(0, domain[1], ny+1)[np.newaxis, :]
+        self._hx = self._ux
+        self._hy = self._vy
+
 
         self._forcings = []
         self._diagnostics = {}
@@ -276,12 +286,12 @@ class LinearShallowWater(EventEmitter):
         hl, hr, ht, hb = self._hbc()
         hx = self._add_lr_bcs(hl, self.eta, hr)
         dhdx = self.diffx(hx)
-        u_rhs = self.f*vv - self.g*dhdx
+        u_rhs = self.f0*vv - self.beta*self._uy*vv - self.g*dhdx
         
         # the v equation
         hy = self._add_tb_bcs(hb, self.eta, ht)
         dhdy = self.diffy(hy)
-        v_rhs = -self.f*uu - self.g*dhdy
+        v_rhs = -self.f0*uu -self.beta*self._vy*uu - self.g*dhdy
 
         return np.array([u_rhs, v_rhs, h_rhs])
 
@@ -308,7 +318,7 @@ if __name__ == '__main__':
 
     nx=320
     ny=80
-    sw = LinearShallowWater(nx, ny, f=0.01, maxt=10000.0)
+    sw = LinearShallowWater(nx, ny, f0=0.01, maxt=10000.0)
 
     @sw.diagnostic('q')
     def potential_vorticity(m):
