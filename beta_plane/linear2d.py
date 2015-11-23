@@ -275,6 +275,11 @@ class LinearShallowWater(EventEmitter):
         vbar = centre_average(vv)
         return ubar, vbar
 
+    def uvath(self):
+        ubar = 0.5*(self.u[1:, :] + self.u[:-1, :])
+        vbar = 0.5*(self.v[:, 1:] + self.v[:, :-1])
+        return ubar, vbar
+
     def rhs(self):
         """Calculate the right hand side of the u, v and h equations."""
         # the height equation
@@ -318,13 +323,15 @@ if __name__ == '__main__':
 
     nx=320
     ny=80
-    sw = LinearShallowWater(nx, ny, f0=0.01, maxt=10000.0)
+
+    sw = LinearShallowWater(nx, ny, f0=0.1, maxt=1000.0)
+
 
     @sw.diagnostic('q')
     def potential_vorticity(m):
         # vorticity is calculated on grid cell corners, move to grid centres to add to 
         zeta = centre_average(m.vorticity)  
-        return zeta - m.f*m.eta/m.H
+        return zeta - m.f0*m.eta/m.H
 
 
     # set an initial condition of height discontinuity along x = Lx/2

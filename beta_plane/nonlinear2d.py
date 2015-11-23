@@ -93,28 +93,54 @@ def remove_background(spectra):
 
 plt.ion()
 
-sw = NonlinearShallowWater(128, 128, dt=0.01, maxt=1000, f0=0.0, beta=1e-5, domain=(1000, 1000), H=100.0)
+sw = NonlinearShallowWater(128, 128, dt=0.01, maxt=1000, f0=1.7, beta=0.0, domain=(1000, 1000), H=100.0)
 
-sw.eta[:] = np.random.random(sw.h.shape)*sw.H*0.01
+sw.eta[:] = np.random.randn(*sw.h.shape)*sw.H*0.03
 #sw.eta[40:80, 40:80] = np.exp(-(np.arange(-20, 20)[np.newaxis, :]**2 + np.arange(-20, 20)[:, np.newaxis]**2)/100)*3
 #sw.eta[40:100, 40:100] = np.sin(np.pi*np.arange(60)/60)[:, np.newaxis]  * np.sin(np.pi*np.arange(60)/60)[np.newaxis, :] * sw.H*0.1
 #sw.eta[30:60, 30:60] = 10.0
 #sw.eta[20:30, 20:30] = 10.0
-#sw.u[:] = 10
+#sw.u[:] = 10  # add a background velocity
 
 
-@sw.forcing
-def dissipate(m):
-    return -m.state*0.01
+# @sw.forcing
+# def dissipate(m, r=0.01):
+#     dstate = np.zeros_like(m.state)
+#     dstate[0] = -m.u*r
+#     dstate[1] = -m.v*r
+#     return dstate
+
+# damping_factor = np.zeros(sw.ny)
+# damping_factor[:10] = np.exp(-np.linspace(0, 5, 10))
+# damping_factor[-10:] = np.exp(-np.linspace(5, 0, 10))
+# damping_factor = damping_factor[np.newaxis, :]
+# @sw.forcing
+# def relax(m):
+#     # damp surface perturbations at the top and bottom of the domain (i.e. prevent wave reflection off boundary)
+#     dstate = np.zeros_like(m.state)
+#     deta = (m.h - m.H)*damping_factor*0.1
+#     dstate[2] = deta
+#     return dstate
+
+@sw.diagnostic('PE')
+def pot_energy(m):
+    return m.g*m.h
+
+@sw.diagnostic('KE')
+def kinetic_energy(m):
+    uu, vv = m.uvath()
+    return 0.5*(uu**2 + vv**2) 
 
 ts = []
 us = []
+es = []
 usl = []
 uspec = []
 @sw.on('step:end')
 def plot_surface(m):
     ts.append(m.t)
-    us.append(np.abs(m.u.max()))
+    es.append(np.sum(m.calc_diagnostic('KE') + m.calc_diagnostic('PE')))
+    us.append(m.h.mean())
     usl.append(m.u.mean(axis=1))
     
     if m.tc % 100 == 0:
@@ -138,7 +164,21 @@ def plot_surface(m):
         plt.imshow(np.log(np.abs(spec)**2)[spec_mid:spec_mid+128, :][::-1])
         plt.colorbar()
 
+        plt.figure(3)
+        plt.clf()
+        plt.plot(m.h.mean(axis=(1)))
 
+
+        plt.figure(4)
+        plt.clf()
+        plt.plot(ts, es)
+        plt.xlabel('time')
+        plt.ylabel('energy')
+
+
+        plt.figure(5)
+        plt.clf()
+        plt.plot(ts, us)
         # plt.subplot(313)
         # plt.imshow(np.array(usl).T)
 
