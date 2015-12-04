@@ -46,8 +46,8 @@ hy = uy
 f0 = 0.0
 beta = 1e-6
 nu = 0.1   # diffusion
-g = 9.8
-H = 10.0
+g = 1.0
+H = 100.0
 
 dt = 5.0
 t = 0.0
@@ -228,22 +228,32 @@ def plot_all(u,v,h):
 
     plt.clf()
     plt.subplot(221)
-    plt.imshow(u[1:-1, 1:-1].T,
+    plt.imshow(u[1:-1, 1:-1].T, cmap=plt.cm.YlGnBu,
             extent=[ux.min(), ux.max(), uy.min(), uy.max()])
+    plt.clim(-np.abs(u).max(), np.abs(u).max())
+    plt.title('u')
+
     plt.subplot(222)
-    plt.imshow(v[1:-1, 1:-1].T,
+    plt.imshow(v[1:-1, 1:-1].T, cmap=plt.cm.YlGnBu,
             extent=[vx.min(), vx.max(), vy.min(), vy.max()])
+    plt.clim(-np.abs(v).max(), np.abs(v).max())
+    plt.title('v')
+
     plt.subplot(223)
-    plt.imshow(h[1:-1, 1:-1].T, cmap=plt.cm.seismic,
+    plt.imshow(h[1:-1, 1:-1].T, cmap=plt.cm.YlGnBu,
             extent=[hx.min(), hx.max(), hy.min(), hy.max()])
     plt.clim(-np.abs(h).max(), np.abs(h).max())
+    plt.title('h')
+
     #plt.colorbar(orientation='horizontal')
     plt.subplot(224)
-
     timestamps.append(t)
     u_snapshot.append(state[0][:, ny//2])
     power = np.log(np.abs(np.fft.fft2(np.array(u_snapshot))**2))
-    plt.imshow(np.fft.fftshift(power))
+    plt.imshow(np.fft.fftshift(power)[:, :128])
+    plt.title('dispertion')
+    plt.xlabel('k')
+    plt.ylabel('omega')
     plt.pause(0.01)
 
 
