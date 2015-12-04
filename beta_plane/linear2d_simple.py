@@ -49,19 +49,33 @@ nu = 0.1   # diffusion
 g = 9.8
 H = 10.0
 
-dt = 2.0
+dt = 5.0
 t = 0.0
 tc = 0
 
 
 def _update_boundaries(*vars):
-    for var in vars:
-    	# periodic x condition
-        # copy values from lhs to the end of the array
-        var[-2:, :] = var[1:3, :]
-        # set the left hand boundary
-        var[0, :] = var[-3, :]
+    u, v, h = vars[0:3]
 
+    # solid walls left and right
+    u[0:2, :] = 0
+    u[-2:, :] = 0
+    v[0, :] = v[1, :]
+    v[-1, :] = v[-2, :]
+    h[0, :] = h[1, :]
+    h[-1, :] = h[-2, :]
+    # for var in u, v:
+    # 	# periodic x condition
+    #     # # copy values from lhs to the end of the array
+    #     # var[-2:, :] = var[1:3, :]
+    #     # # set the left hand boundary
+    #     # var[0, :] = var[-3, :]
+
+    #     # solid walls on left and right
+    #     var[0:1, :] = 0
+    #     var[-1:, :] = 0
+
+    for var in vars:
         # zero deriv y condition
         var[:, 0] = var[:, 1]
         var[:, -1] = var[:, -2]
@@ -205,35 +219,44 @@ def step(state):
 
 import matplotlib.pyplot as plt
 
-plt.figure(figsize=(12, 5))
+timestamps = []
+u_snapshot = []
+
+plt.figure(figsize=(12, 12))
 def plot_all(u,v,h):
+    global timestamps, u_snapshot
+
     plt.clf()
-    plt.subplot(131)
+    plt.subplot(221)
     plt.imshow(u[1:-1, 1:-1].T,
             extent=[ux.min(), ux.max(), uy.min(), uy.max()])
-    plt.subplot(132)
+    plt.subplot(222)
     plt.imshow(v[1:-1, 1:-1].T,
             extent=[vx.min(), vx.max(), vy.min(), vy.max()])
-    plt.subplot(133)
+    plt.subplot(223)
     plt.imshow(h[1:-1, 1:-1].T, cmap=plt.cm.seismic,
             extent=[hx.min(), hx.max(), hy.min(), hy.max()])
     plt.clim(-np.abs(h).max(), np.abs(h).max())
     #plt.colorbar(orientation='horizontal')
+    plt.subplot(224)
 
-    plt.pause(0.1)
+    timestamps.append(t)
+    u_snapshot.append(state[0][:, ny//2])
+    power = np.log(np.abs(np.fft.fft2(np.array(u_snapshot))**2))
+    plt.imshow(np.fft.fftshift(power))
+    plt.pause(0.01)
 
 
 h[nx//2-5:nx//2+5, ny//2-5:ny//2+5] = np.exp(-(((np.indices((10,10)) - 5)/2.0)**2).sum(axis=0))
-#h[70:80, 70:80] = np.exp(-(((np.indices((10,10)) - 5)/2.0)**2).sum(axis=0))
-#h[40:50, 40:50] = np.exp(-(((np.indices((10,10)) - 5)/2.0)**2).sum(axis=0))
-#h[100:110, 70:80] = np.exp(-(((np.indices((10,10)) - 5)/2.0)**2).sum(axis=0))
-#h[48:128, 48:128] = np.sin(np.linspace(0, np.pi, 80))[:, np.newaxis]**2*np.sin(np.linspace(0, np.pi, 80))[np.newaxis, :]**2*0.01
-#h[np.sum((np.indices(h.shape)- 60)**2) < 300] = 0.01
+
 state = np.array([u, v, h])
+
 
 
 for i in range(100000):
     state = step(state)
-    if i % 20 == 0:
+    if i % 50 == 0:
+        
         plot_all(*state)
         print(state[2].min(), state[2].max())
+
