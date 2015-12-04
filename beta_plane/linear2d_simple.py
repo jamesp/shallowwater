@@ -20,27 +20,39 @@ f = f0 + βy
 import numpy as np
 
 nx = 128
-ny = 128
+ny = 129
 
-Lx = 100.0
-Ly = 100.0
+Lx = 1.0e5
+Ly = 1.0e5
 
 u = np.zeros((nx+3, ny+2))
 v = np.zeros((nx+2, ny+3))
 h = np.zeros((nx+2, ny+2))
 
+dx = Lx / nx
+dy = Ly / ny
 
-f0 = 0.5
-nu = 0.01
+# positions of the nodes
+ux = (-Lx/2 + np.arange(nx+1)*dx)[:, np.newaxis]
+vx = (-Lx/2 + dx/2.0 + np.arange(nx)*dx)[:, np.newaxis]
+
+vy = (-Ly/2 + np.arange(ny+1)*dy)[np.newaxis, :]
+uy = (-Ly/2 + dy/2.0 + np.arange(ny)*dy)[np.newaxis, :]
+
+hx = vx
+hy = uy
+
+
+f0 = 0.0
+beta = 1e-6
+nu = 0.1   # diffusion
 g = 9.8
-H = 1.0
+H = 10.0
 
-dx = dx = Lx / nx
-dy = dy = Ly / ny
-
-dt = 0.05
+dt = 2.0
 t = 0.0
 tc = 0
+
 
 def _update_boundaries(*vars):
     for var in vars:
@@ -121,8 +133,8 @@ def del2(phi):
 
 def uvatuv(u, v):
     """Calculate the value of u at v and v at u."""
-    ubar = centre_average(u)
-    vbar = centre_average(v)
+    ubar = centre_average(u)[1:-1, :]
+    vbar = centre_average(v)[:, 1:-1]
     return ubar, vbar
 
 def uvath(u, v):
@@ -145,14 +157,12 @@ def rhs(state):
     h_rhs[:] = -H*(divergence(u, v))
 
     # the u equation
-    dhdx = diffx(h)
-    u_rhs[1:-1, :] = f0*vv - g*dhdx 
-    u_rhs[1:-1, 1:-1] += nu*del2(u)
+    dhdx = diffx(h)[:, 1:-1]
+    u_rhs[1:-1, 1:-1] = f0*vv + beta*uy*vv - g*dhdx + nu*del2(u)*np.abs(uy/Ly)
      
     # the v equation
-    dhdy = diffy(h)
-    v_rhs[:, 1:-1] = -f0*uu - g*dhdy
-    v_rhs[1:-1, 1:-1] += nu*del2(v)
+    dhdy = diffy(h)[1:-1, :]
+    v_rhs[1:-1, 1:-1] = -f0*uu - beta*vy*uu - g*dhdy + nu*del2(v)*np.abs(vy/Ly)
 
     return np.array([u_rhs, v_rhs, h_rhs])
 
@@ -199,26 +209,30 @@ plt.figure(figsize=(12, 5))
 def plot_all(u,v,h):
     plt.clf()
     plt.subplot(131)
-    plt.imshow(u.T)
+    plt.imshow(u[1:-1, 1:-1].T,
+            extent=[ux.min(), ux.max(), uy.min(), uy.max()])
     plt.subplot(132)
-    plt.imshow(v.T)
+    plt.imshow(v[1:-1, 1:-1].T,
+            extent=[vx.min(), vx.max(), vy.min(), vy.max()])
     plt.subplot(133)
-    plt.imshow(h.T, cmap=plt.cm.seismic)
+    plt.imshow(h[1:-1, 1:-1].T, cmap=plt.cm.seismic,
+            extent=[hx.min(), hx.max(), hy.min(), hy.max()])
     plt.clim(-np.abs(h).max(), np.abs(h).max())
     #plt.colorbar(orientation='horizontal')
 
     plt.pause(0.1)
 
 
-h[70:80, 70:80] = np.exp(-(((np.indices((10,10)) - 5)/2.0)**2).sum(axis=0))
-h[40:50, 40:50] = np.exp(-(((np.indices((10,10)) - 5)/2.0)**2).sum(axis=0))
-h[100:110, 70:80] = np.exp(-(((np.indices((10,10)) - 5)/2.0)**2).sum(axis=0))
+h[nx//2-5:nx//2+5, ny//2-5:ny//2+5] = np.exp(-(((np.indices((10,10)) - 5)/2.0)**2).sum(axis=0))
+#h[70:80, 70:80] = np.exp(-(((np.indices((10,10)) - 5)/2.0)**2).sum(axis=0))
+#h[40:50, 40:50] = np.exp(-(((np.indices((10,10)) - 5)/2.0)**2).sum(axis=0))
+#h[100:110, 70:80] = np.exp(-(((np.indices((10,10)) - 5)/2.0)**2).sum(axis=0))
 #h[48:128, 48:128] = np.sin(np.linspace(0, np.pi, 80))[:, np.newaxis]**2*np.sin(np.linspace(0, np.pi, 80))[np.newaxis, :]**2*0.01
 #h[np.sum((np.indices(h.shape)- 60)**2) < 300] = 0.01
 state = np.array([u, v, h])
 
 
-for i in range(10000):
+for i in range(100000):
     state = step(state)
     if i % 20 == 0:
         plot_all(*state)
