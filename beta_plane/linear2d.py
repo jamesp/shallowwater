@@ -379,9 +379,9 @@ if __name__ == '__main__':
 
     # set an initial condition of height discontinuity along x = Lx/2
     IC =  np.zeros_like(sw.eta)
-    # IC[:sw.nx/2, :] = sw.H * 0.01
-    # IC[sw.nx/2:, :] = -sw.H * 0.01
-    IC[:] = -np.tanh((sw.hx - sw.Lx/2)/(sw.Lx/50))*sw.H*0.01
+    IC[:sw.nx/2, :] = sw.H * 0.01
+    IC[sw.nx/2:, :] = -sw.H * 0.01
+    #IC[:] = -np.tanh((sw.hx - sw.Lx/2)/(sw.Lx/50))*sw.H*0.01
     sw.eta[:] = IC
 
     # calculate the initial potential vorticity
