@@ -55,18 +55,17 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from numpy import pi, cos, sin
-from numpy.fft import fftshift, rfft2, irfft2, fftfreq
-
+from numpy.fft import fftshift, fftfreq
+from numpy.fft.fftpack import rfft2, irfft2
 
 
 ### Configuration
-
 nx = 128
 ny = 128                        # numerical resolution
 Lx = 1.0
 Ly = 1.0                        # domain size [m]
-ubar = 0.00                    # background zonal velocity  [m/s]
-beta = 2.5                     # beta-plane f = f0 + βy     [1/s 1/m]
+ubar = 0.00                     # background zonal velocity  [m/s]
+beta = 1.7                      # beta-plane f = f0 + βy     [1/s 1/m]
 tau = 0.5                       # coefficient of dissipation
                                 # smaller = more dissipation
 
@@ -79,12 +78,10 @@ SPEEDUP_AT_C  = 0.6          # timestep when the Courant number drops below
                              # value of parameter SPEEDUP_AT_C
 SLOWDN_AT_C = 0.8            # reduce the timestep when Courant number
                              # is bigger than SLOWDN_AT_C
-SHOW_CHART = True
-
+PLOT_EVERY_S = 10
 
 
 ### Function Definitions
-
 def ft(phi):
     """Go from physical space to spectral space."""
     return rfft2(phi, axes=(-2, -1))
@@ -123,7 +120,6 @@ def spectral_variance(phit):
     return var_density.sum()
 
 _prhs, _pprhs  = 0.0, 0.0  # previous two right hand sides
-step0, step1 = False, False
 def adams_bashforth(zt, rhs, dt):
     """Take a single step forward in time using Adams-Bashforth 3."""
     global step, t, _prhs, _pprhs
@@ -132,13 +128,11 @@ def adams_bashforth(zt, rhs, dt):
         dt1 = dt
         dt2 = 0.0
         dt3 = 0.0
-        step0 = True
     elif step is 1:
         # AB2 at step 2
         dt1 = 1.5*dt
         dt2 = -0.5*dt
         dt3 = 0.0
-        step1 = True
     else:
         # AB3 from step 3 on
         dt1 = 23./12.*dt
@@ -165,6 +159,13 @@ dt = 0.4 * 16.0 / nx          # choose an initial dt. This will change
 dk = 2.0*pi/Lx
 dl = 2.0*pi/Ly
 # calculate the wavenumbers [1/m]
+# The real FT has half the number of wavenumbers in one direction:
+# FT_x[real] -> complex : 1/2 as many complex numbers needed as real signal
+# FT_y[complex] -> complex : After the first transform has been done the signal
+# is complex, therefore the transformed domain in second dimension is same size
+# as it is in euclidean space.
+# Therefore FT[(nx, ny)] -> (nx/2, ny)
+# The 2D Inverse transform returns a real-only domain (nx, ny)
 k = dk*np.arange(0, nk, dtype=np.float64)[np.newaxis, :]
 l = dl*fftfreq(nl, d=1.0/nl)[:, np.newaxis]
 
@@ -212,6 +213,7 @@ amp = np.max(np.abs(zt))        # calc a reasonable forcing amplitude
 ## RUN THE SIMULATION
 plt.ion()                       # plot in realtime
 plt.figure(figsize=(12, 6))
+tplot = t + PLOT_EVERY_S
 while t < tmax:
     # calculate derivatives in spectral space
     psit = -rksq * zt           # F[ψ] = - F[ζ] / (k^2 + l^2)
@@ -235,7 +237,7 @@ while t < tmax:
     #   into spectral space before adding to rhs) 
     forcet = np.zeros_like(ksq)
     idx = (40 < np.sqrt(ksq)) & (np.sqrt(ksq) < 60)
-    forcet[idx] = 0.5*amp*(np.random.random(ksq.shape)[idx] - 0.5)
+    forcet[idx] = 0.5*amp*(np.random.random(ksq.shape)[idx] - 0.5)*np.sin(0.5*t)
 
     # calculate the size of timestep that can be taken
     # (assumes a domain where dx and dy are of the same order)
@@ -252,22 +254,22 @@ while t < tmax:
     del4 = 1.0 / (1.0 + nu*ksq**2*dt)
     zt[:] = zt * del4
 
-    print('[{:5d}] {:.2f} Max z: {:2.2f} c={:.2f} dt={:.2f}'.format(
-        step, t, np.max(z), c, dt))
-
-    if step % 20 == 0:
+    if t > tplot:
+        print('[{:5d}] {:.2f} Max z: {:2.2f} c={:.2f} dt={:.2f}'.format(
+            step, t, np.max(z), c, dt))
         plt.clf()
         plt.subplot(121)
-        plt.imshow(z, extent=[0, Lx, 0, Ly], cmap=plt.cm.seismic)
+        plt.imshow(z, extent=[0, Lx, 0, Ly], cmap=plt.cm.YlGnBu)
         plt.xlabel('x')
         plt.ylabel('y')
-        plt.clim(-1,1)
+        zmax = np.max(np.abs(z))
+        plt.clim(-zmax,zmax)
         plt.colorbar(orientation='horizontal')
         plt.title('Vorticity at {:.2f}s dt={:.2f}'.format(t, dt))
 
         plt.subplot(122)
         power = np.fft.fftshift(np.abs(zt)**2, axes=(0,))
-        power_norm = power / np.max(power)
+        power_norm = np.log(power)
         plt.imshow(power_norm,
                     extent=[np.min(k), np.max(k), np.min(l), np.max(l)])
         plt.xlabel('k')
@@ -275,6 +277,7 @@ while t < tmax:
         plt.colorbar(orientation='horizontal')
         plt.title('Power Spectra')
         plt.pause(0.01)
+        tplot = t + PLOT_EVERY_S
 
     t = t + dt
     step = step + 1
