@@ -94,6 +94,7 @@ def diffx(psi):
      
     The derivative is returned at x points at the midpoint between
     x points of the input array."""
+    global dx
     return (psi[1:,:] - psi[:-1,:]) / dx
 
 def diff2x(psi):
@@ -103,6 +104,7 @@ def diff2x(psi):
      
     The derivative is returned at the same x points as the
     x points of the input array, with dimension (nx-2, ny)."""
+    global dx
     return (psi[:-2, :] - psi[1:-1, :] + psi[2:, :]) / dx**2
 
 def diff2y(psi):
@@ -112,6 +114,7 @@ def diff2y(psi):
      
     The derivative is returned at the same y points as the
     y points of the input array, with dimension (nx, ny-2)."""
+    global dy
     return (psi[:, :-2] - psi[:, 1:-1] + psi[:, 2:]) / dy**2
 
 def diffy(psi):
@@ -121,6 +124,7 @@ def diffy(psi):
      
     The derivative is returned at y points at the midpoint between
     y points of the input array."""
+    global dy
     return (psi[:, 1:] - psi[:,:-1]) / dy
 
 def centre_average(phi):
@@ -248,13 +252,18 @@ def plot_all(u,v,h):
     #plt.colorbar(orientation='horizontal')
     plt.subplot(224)
     timestamps.append(t)
-    u_snapshot.append(state[0][:, ny//2])
-    power = np.log(np.abs(np.fft.fft2(np.array(u_snapshot))**2))
-    plt.imshow(np.fft.fftshift(power)[:, :128])
-    plt.title('dispertion')
-    plt.xlabel('k')
-    plt.ylabel('omega')
-    plt.pause(0.01)
+    u_snapshot.append(state[0][:, ny//2])  # add equatorial zonal velocity to u_snapshot
+    if len(u_snapshot) % 2 == 0:
+        power = np.log(np.abs(np.fft.fft2(np.array(u_snapshot))**2))
+        k = np.fft.fftshift(np.fft.fftfreq(power.shape[1], 1/dx))
+        omega = np.fft.fftshift(np.fft.fftfreq(power.shape[0], 1/dt))
+        plt.pcolormesh(k, omega, np.fft.fftshift(power)[::-1])
+        plt.ylim(0, 2.5)
+        plt.xlim(-200, 200)
+        plt.title('dispertion')
+        plt.xlabel('k')
+        plt.ylabel('omega')
+        plt.pause(0.01)
 
 
 h[nx//2-5:nx//2+5, ny//2-5:ny//2+5] = np.exp(-(((np.indices((10,10)) - 5)/2.0)**2).sum(axis=0))

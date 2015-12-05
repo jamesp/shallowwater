@@ -17,8 +17,6 @@ h = H + η
 f = f0 + βy
 """
 
-from collections import defaultdict
- 
 import numpy as np
 from numpy import mod, floor, ceil
 
@@ -26,32 +24,20 @@ def centre_average(phi):
     """Returns the four-point average at the centres between grid points."""
     return 0.25*(phi[:-1,:-1] + phi[:-1,1:] + phi[1:, :-1] + phi[1:,1:])
 
+def y_average(phi):
+    """Average adjacent values in the y dimension.
+    If phi has shape (nx, ny), returns an array of shape (nx, ny - 1)."""
+    return 0.5*(phi[:,:-1] + phi[:,1:])
+
+def x_average(phi):
+    """Average adjacent values in the x dimension.
+    If phi has shape (nx, ny), returns an array of shape (nx - 1, ny)."""
+    return 0.5*(phi[:-1,:] + phi[1:,:])
 
 
-class EventEmitter(object):
-    """A very simple event driven object to make it easier
-    to tie custom functionality into the model."""
-    def __init__(self):
-        self._events = defaultdict(list)
-
-    def on(self, event, callback=None):
-        def _on(callback):
-            self._events[event].append(callback)
-            return callback
-
-        if callback is None:
-            return _on           # used as a decorator
-        else:
-            return _on(callback) # used as a normal function
-
-    def emit(self, event, *args, **kwargs):
-        for callback in self._events[event]:
-            callback(*args, **kwargs)
-
-
-class LinearShallowWater(EventEmitter):
+class LinearShallowWater(object):
     """A model of the two-dimensional linearised shallow water equations"""
-    def __init__(self, nx, ny, f0=1.0, beta=0.0, r=0.01, dt=0.1, maxt=1.0, domain=(10000.0, 10000.0), H=1000.0, g=9.8):
+    def __init__(self, nx, ny, f0=1.0, beta=0.0, dt=0.1, maxt=1.0, domain=(10000.0, 10000.0), H=1000.0, g=9.8):
         super(LinearShallowWater, self).__init__()
         self.nx = nx
         self.ny = ny
@@ -60,26 +46,30 @@ class LinearShallowWater(EventEmitter):
         self.beta = beta  # TODO: Implement beta plane
         self.maxt = maxt
         self.domain = domain
-        self.dx = dx = domain[0] / nx
-        self.dy = dy = domain[1] / ny
+        self.Lx = domain[0]
+        self.Ly = domain[1]
+        self.dx = dx = self.Lx / nx
+        self.dy = dy = self.Ly / ny
         self.H  = H
-        self.u = np.zeros((nx+1, ny))
-        self.v = np.zeros((nx, ny+1))    # v points are on horizontal edges so there exists an extra point from the last vertex
-        self.eta = np.zeros((nx, ny))
-        self.r = r
+        self.u = np.zeros((nx+1, ny))    # u points are on the vertical edges
+        self.v = np.zeros((nx, ny+1))    # v points are on horizontal edges so there is an extra point from the last vertex
+        self.eta = np.zeros((nx, ny))    # h points are at cell centres
         self.g = g
 
         # the positions of u, v and h nodes on the grid
-        self._ux = np.linspace(0, domain[0], nx+1)[:, np.newaxis]
-        self._uy = dy/2.0 + np.linspace(0, domain[0], ny)[np.newaxis, :]
-        self._vx = dx/2.0 + np.linspace(0, domain[1], nx)[:, np.newaxis]
-        self._vy = dy/2.0 + np.linspace(0, domain[1], ny+1)[np.newaxis, :]
-        self._hx = self._ux
-        self._hy = self._vy
-
+        self.ux = np.linspace(0, domain[0], nx+1)[:, np.newaxis]
+        self.uy = dy/2.0 + np.linspace(0, domain[0], ny)[np.newaxis, :]
+        self.vx = dx/2.0 + np.linspace(0, domain[1], nx)[:, np.newaxis]
+        self.vy = dy/2.0 + np.linspace(0, domain[1], ny+1)[np.newaxis, :]
+        self.hx = self.vx
+        self.hy = self.uy
 
         self._forcings = []
-        self._diagnostics = {}
+        self._diagnostics = {
+            'divergence': self.divergence,
+            'vorticity': self.vorticity
+            }
+        self._outputs = []
 
         self._dstates = []
         self._dstate = np.zeros_like(self.state)
@@ -94,12 +84,12 @@ class LinearShallowWater(EventEmitter):
         """Apply a forcing to the state at this timestep."""
         self._dstates.append(dstate)
 
-    def forcing(self, fn):
+    def add_forcing(self, fn):
         """Add a forcing term to the model.  Typically used as a decorator:
 
             sw = LinearShallowWater(nx, ny)
 
-            @sw.forcing
+            @sw.add_forcing
             def dissipate(swmodel):
                 dstate = np.zeros_like(swmodel.state)
                 dstate[:] = -swmodel.state*0.001
@@ -111,12 +101,27 @@ class LinearShallowWater(EventEmitter):
         self._forcings.append(fn)
         return fn
 
-    def diagnostic(self, name, fn=None):
+    def add_output(self, every_n_steps=1, fn=None):
+        def _diagnostic(fn):
+            self._outputs.append((every_n_steps, fn))
+            return fn
+
+        if fn is None:
+            return _diagnostic           # used as a decorator
+        else:
+            return _diagnostic(fn)       # used as a normal function
+
+    def _process_outputs(self):
+        for t, fn in self._outputs:
+            if self.tc % t == 1:
+                fn(self)      # perform some side effects
+
+    def add_diagnostic(self, name, fn=None):
         """Add a diagnostic calculation to the model.  Typically used as a decorator:
 
             sw = LinearShallowWater(nx, ny)
 
-            @sw.diagnostic('q')
+            @sw.add_diagnostic('q')
             def pot_vort(swmodel):
                 q = np.zeros_like(swmodel.eta)
                 q[:] = calc_vorticity(swmodel) + f0
@@ -134,25 +139,24 @@ class LinearShallowWater(EventEmitter):
         else:
             return _diagnostic(fn)       # used as a normal function
 
-
-    def calc_diagnostic(self, name):
+    def get_diagnostic(self, name):
         if name in self._diagnostics:
             val = self._diagnostics[name](self)
             return val
         else:
-            if name is 'vorticity':
-                return self.vorticity
-            if name is 'divergence':
-                return self.divergence
             raise Error('Diagnostic %r not defined.' % name)
 
+    # shortcut to get diagnostic values
+    d = get_diagnostic
+
+    def get_all_diagnostics(self):
+        return {k: fn(self) for k, fn in self._diagnostics.items()}
 
     def step(self):
         #ur, vr, hr = self.rhs()
-        self.emit('step:start', self)
         rhs = self.rhs()
 
-        self.emit('step:force', self)
+        # calculate the influence of all the applied forcings
         dforce = sum([f(self) for f in self._forcings])
         dstate = self._dstate = rhs + dforce + np.sum(self._dstates, axis=0)
         self._dstates = []
@@ -181,8 +185,16 @@ class LinearShallowWater(EventEmitter):
 
         self.t  += self.dt
         self.tc += 1
-        self.emit('step:end', self)
+        self._process_outputs()
 
+    @property    
+    def _state_with_bcs(self):
+        """Returns the u, v and h fields with boundaries applied.
+        Returns fields 2 larger in both dimensions."""
+        ub = self._add_all_bcs(self.u, self._ubc())
+        vb = self._add_all_bcs(self.v, self._vbc())
+        hb = self._add_all_bcs(self.h, self._hbc())
+        return np.array([ub, vb, hb])
 
     def _ubc(self):
         """Returns the u velocity boundaries.
@@ -192,7 +204,6 @@ class LinearShallowWater(EventEmitter):
         # no derivative at the boundaries
         return (self.u[0,:], self.u[-1,:], self.u[:,-1], self.u[:,0])
 
-
     def _hbc(self):
         """Returns the h boundaries.\
         Returns tuple (left, right, top, bottom)."""
@@ -200,7 +211,6 @@ class LinearShallowWater(EventEmitter):
         # return (self.eta[-1,:], self.eta[0,:], self.eta[:,-1], self.eta[:,0])
         # no derivative at the boundaries
         return (self.eta[0,:], self.eta[-1,:], self.eta[:,-1], self.eta[:,0])
-
 
     def _vbc(self):
         """Returns the v boundary values."""
@@ -230,12 +240,10 @@ class LinearShallowWater(EventEmitter):
     def h(self):
         return self.H + self.eta
     
-    @property
     def divergence(self):
         """Returns the horizontal divergence at h points."""
         return self.diffx(self.u) + self.diffy(self.v)
 
-    @property
     def vorticity(self):
         """Returns the vorticity calculated at grid corners."""
         ul, ur, ut, ub = self._ubc()
@@ -266,13 +274,20 @@ class LinearShallowWater(EventEmitter):
 
     def uvatuv(self):
         """Calculate the value of u at v and v at u."""
-        ul, ur, ut, ub = self._ubc()       # need the boundary conditions to average u at v points
-        uu = self._add_tb_bcs(ub, self.u, ut)
-        ubar = centre_average(uu)
+        uu, vv, hh = self._state_with_bcs
+
+        # ul, ur, ut, ub = self._ubc()       # need the boundary conditions to average u at v points
+        # uu = self._add_tb_bcs(ub, self.u, ut)
+        ubar = centre_average(uu[1:-1, :])
         
-        vl, vr, vt, vb = self._vbc() 
-        vv = self._add_lr_bcs(vl, self.v, vr)
-        vbar = centre_average(vv)
+        # vl, vr, vt, vb = self._vbc() 
+        # vv = self._add_lr_bcs(vl, self.v, vr)
+        vbar = centre_average(vv[:, 1:-1])
+        return ubar, vbar
+
+    def uvath(self):
+        ubar = x_average(self.u)
+        vbar = y_average(self.v)
         return ubar, vbar
 
     def rhs(self):
@@ -286,12 +301,12 @@ class LinearShallowWater(EventEmitter):
         hl, hr, ht, hb = self._hbc()
         hx = self._add_lr_bcs(hl, self.eta, hr)
         dhdx = self.diffx(hx)
-        u_rhs = self.f0*vv - self.beta*self._uy*vv - self.g*dhdx
+        u_rhs = self.f0*vv - self.beta*self.uy*vv - self.g*dhdx
         
         # the v equation
         hy = self._add_tb_bcs(hb, self.eta, ht)
         dhdy = self.diffy(hy)
-        v_rhs = -self.f0*uu -self.beta*self._vy*uu - self.g*dhdy
+        v_rhs = -self.f0*uu -self.beta*self.vy*uu - self.g*dhdy
 
         return np.array([u_rhs, v_rhs, h_rhs])
 
@@ -304,7 +319,6 @@ class LinearShallowWater(EventEmitter):
         self.u, self.v, self.eta = value
 
     def run(self):
-        self.emit('initialise', self)
         while self.t < self.maxt:
             self.step()
 
@@ -312,54 +326,6 @@ if __name__ == '__main__':
     import matplotlib.pyplot as plt
     
     plt.ion()
-
-    # Geostrophic Adjustment example
-    # There is no variation in the y-dimension
-
-    nx=320
-    ny=80
-    sw = LinearShallowWater(nx, ny, f0=0.1, maxt=1000.0)
-
-    @sw.diagnostic('q')
-    def potential_vorticity(m):
-        # vorticity is calculated on grid cell corners, move to grid centres to add to 
-        zeta = centre_average(m.vorticity)  
-        return zeta - m.f0*m.eta/m.H
-
-
-    # set an initial condition of height discontinuity along x = Lx/2
-    IC =  np.zeros_like(sw.eta)
-    IC[:sw.nx/2, :] = sw.H * 0.01
-    IC[sw.nx/2:, :] = -sw.H * 0.01
-    sw.eta[:] = IC
-
-    # calculate the initial potential vorticity
-    q0 = sw.calc_diagnostic('q')
-
-    @sw.on('initialise')
-    def init_model(m):
-        plot_hv(m)
-        plot_vorticity(m)
-        plt.pause(3)
-
-
-    @sw.forcing
-    def dissipate(m):
-        # add dissipation terms - basic rayleigh friction on all fields
-        dstate = -m.state*0.001
-        return dstate
-
-    # relax faster at the left and right boundaries
-    rel_profile = np.concatenate([np.linspace(1, 0, nx/2), np.linspace(0,1, nx/2)])[:, np.newaxis]
-    @sw.forcing
-    def relax(m):
-        # relax back towards the initial condition
-        dstate = np.zeros_like(m.state)
-        dstate[2] = (IC - m.eta)*rel_profile*0.1
-        return dstate
-
-
-    
 
     def plot_hv(m):
         plt.figure(1)
@@ -384,7 +350,7 @@ if __name__ == '__main__':
         plt.clf()
         
         plt.subplot(211)
-        q = m.calc_diagnostic('q')
+        q = m.d('q')
         plt.imshow((q - q0).T)
         plt.colorbar()
 
@@ -396,13 +362,61 @@ if __name__ == '__main__':
         plt.pause(0.01)
         plt.draw()
 
-    @sw.on('step:end')
+
+    # Geostrophic Adjustment example
+    # There is no variation in the y-dimension
+
+    nx=320
+    ny=5
+    sw = LinearShallowWater(nx, ny, f0=1.0, maxt=10000.0)
+
+    @sw.add_diagnostic('q')
+    def potential_vorticity(m):
+        # vorticity is calculated on grid cell corners, move to grid centres to add to 
+        zeta = centre_average(m.vorticity())  
+        return zeta - m.f0*m.eta/m.H
+
+
+    # set an initial condition of height discontinuity along x = Lx/2
+    IC =  np.zeros_like(sw.eta)
+    IC[:sw.nx/2, :] = sw.H * 0.01
+    IC[sw.nx/2:, :] = -sw.H * 0.01
+    #IC[:] = -np.tanh((sw.hx - sw.Lx/2)/(sw.Lx/50))*sw.H*0.01
+    sw.eta[:] = IC
+
+    # calculate the initial potential vorticity
+    q0 = sw.d('q')
+
+    plot_hv(sw)
+    plot_vorticity(sw)
+    plt.pause(3)
+
+
+    @sw.add_forcing
+    def dissipate(m):
+        # add dissipation terms - basic rayleigh friction on all fields
+        dstate = -m.state*0.001
+        return dstate
+
+    # relax/damp faster at the left and right boundaries
+    rel_profile = np.zeros(sw.nx)
+    rel_profile[:10] = np.exp(-np.arange(0, 10, 1)*0.3)
+    rel_profile[-10:] = np.exp(-np.arange(10, 0, -1)*0.3)
+    rel_profile = rel_profile[:, np.newaxis]
+
+    @sw.add_forcing
+    def relax(m):
+        # relax back towards the initial condition
+        dstate = np.zeros_like(m.state)
+        dstate[2] = (IC - m.eta)*rel_profile
+        return dstate
+
+    @sw.add_output(5)
     def print_status(m):
         print('time %f: Max vel. %.3g' % (m.t, np.max(m.u)))
-        print('total potential vorticity: %.3g' % np.sum(m.calc_diagnostic('q')))
-        if m.tc % 10 == 1:
-            plot_hv(m)
-        if m.tc % 100 == 2:
-            plot_vorticity(m)
+        print('total potential vorticity: %.3g' % np.sum(m.d('q')))
+    
+    sw.add_output(10, plot_hv)
+    sw.add_output(100, plot_vorticity)
 
     sw.run()
