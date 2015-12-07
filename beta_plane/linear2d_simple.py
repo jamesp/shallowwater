@@ -45,7 +45,8 @@ hy = uy
 
 f0 = 0.0
 beta = 1e-6
-nu = 0.1   # diffusion
+nu = 0.1   # diffusion coefficient
+r =  0.1   # damping coefficient
 g = 1.0
 H = 100.0
 
@@ -54,26 +55,22 @@ t = 0.0
 tc = 0
 
 
+rmbd   = slice(1,-1), slice(1,-1)          # index an array with these to remove
+rmbd_y = slice(None, None), slice(1,-1)    # the boundary values on both sides
+rmbd_x = slice(1,-1), slice(None, None)    # or just x bdy, y bdy.
+
 def _update_boundaries(*vars):
     u, v, h = vars[0:3]
 
     # solid walls left and right
-    u[0:2, :] = 0
-    u[-2:, :] = 0
+    # - 0 u velocities
+    # - free slip for v and h (zero derivative)
+    u[0, :] = 0
+    u[-1:, :] = 0
     v[0, :] = v[1, :]
     v[-1, :] = v[-2, :]
     h[0, :] = h[1, :]
     h[-1, :] = h[-2, :]
-    # for var in u, v:
-    # 	# periodic x condition
-    #     # # copy values from lhs to the end of the array
-    #     # var[-2:, :] = var[1:3, :]
-    #     # # set the left hand boundary
-    #     # var[0, :] = var[-3, :]
-
-    #     # solid walls on left and right
-    #     var[0:1, :] = 0
-    #     var[-1:, :] = 0
 
     for var in vars:
         # zero deriv y condition
@@ -151,8 +148,8 @@ def del2(phi):
 
 def uvatuv(u, v):
     """Calculate the value of u at v and v at u."""
-    ubar = centre_average(u)[1:-1, :]
-    vbar = centre_average(v)[:, 1:-1]
+    ubar = centre_average(u)[rmbd_x]
+    vbar = centre_average(v)[rmbd_y]
     return ubar, vbar
 
 def uvath(u, v):
@@ -161,26 +158,37 @@ def uvath(u, v):
     return ubar, vbar
 
 
+# damping at top and bottom of the domain
+ndamp = ny//5
+_r = np.exp(-np.linspace(0, 3, ndamp))[np.newaxis, :]*r
+def sponge(phi):
+    global _r
+    # damp values at the top and bottom edges
+    damped = np.zeros_like(phi)
+    damped[:, :ndamp] = phi[:, :ndamp] * _r
+    damped[:, -ndamp:] = phi[:, -ndamp:] * _r[::-1]
+    return damped
+
 def rhs(state):
     """Calculate the right hand side of the u, v and h equations."""
     global f0, g, H
     u, v, h = state[0:3]
     uu, vv = uvatuv(u, v)
+    r = 0.01
     
     u_rhs = np.zeros_like(u)
     v_rhs = np.zeros_like(v)
     h_rhs = np.zeros_like(h)
 
     # the height equation
-    h_rhs[:] = -H*(divergence(u, v))
+    h_rhs[:] = -H*(divergence(u, v)) - sponge(h)
 
     # the u equation
-    dhdx = diffx(h)[:, 1:-1]
-    u_rhs[1:-1, 1:-1] = f0*vv + beta*uy*vv - g*dhdx + nu*del2(u)*np.abs(uy/Ly)
-     
+    dhdx = diffx(h)[rmbd_y]
+    u_rhs[1:-1, 1:-1] = f0*vv + beta*uy*vv - g*dhdx + nu*del2(u) - sponge(u)[rmbd]
     # the v equation
-    dhdy = diffy(h)[1:-1, :]
-    v_rhs[1:-1, 1:-1] = -f0*uu - beta*vy*uu - g*dhdy + nu*del2(v)*np.abs(vy/Ly)
+    dhdy = diffy(h)[rmbd_x]
+    v_rhs[1:-1, 1:-1] = -f0*uu - beta*vy*uu - g*dhdy + nu*del2(v) - sponge(v)[rmbd]
 
     return np.array([u_rhs, v_rhs, h_rhs])
 
@@ -244,7 +252,7 @@ def plot_all(u,v,h):
     plt.title('v')
 
     plt.subplot(223)
-    plt.imshow(h[1:-1, 1:-1].T, cmap=plt.cm.YlGnBu,
+    plt.imshow(h[1:-1, 1:-1].T, cmap=plt.cm.seismic,
             extent=[hx.min(), hx.max(), hy.min(), hy.max()])
     plt.clim(-np.abs(h).max(), np.abs(h).max())
     plt.title('h')
