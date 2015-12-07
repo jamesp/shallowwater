@@ -22,8 +22,8 @@ import numpy as np
 nx = 128
 ny = 129
 
-Lx = 1.0e5
-Ly = 1.0e5
+Lx = 1.5e7
+Ly = 1.5e7
 
 u = np.zeros((nx+3, ny+2))
 v = np.zeros((nx+2, ny+3))
@@ -44,13 +44,13 @@ hy = uy
 
 
 f0 = 0.0
-beta = 1e-6
-nu = 0.1   # diffusion coefficient
-r =  0.1   # damping coefficient
-g = 1.0
+beta = 2.3e-11
+nu = 0.1*0   # diffusion coefficient
+r =  0.1e-4   # damping coefficient
+g = 0.1
 H = 100.0
 
-dt = 5.0
+dt = 4000.0
 t = 0.0
 tc = 0
 
@@ -264,19 +264,27 @@ def plot_all(u,v,h):
     plt.title('h')
 
     #plt.colorbar(orientation='horizontal')
+
     plt.subplot(224)
     timestamps.append(t)
     u_snapshot.append(state[0][:, ny//2])  # add equatorial zonal velocity to u_snapshot
     if len(u_snapshot) % 2 == 0:
+        c = 2*np.pi*np.sqrt(g*H)
         power = np.log(np.abs(np.fft.fft2(np.array(u_snapshot))**2))
-        k = np.fft.fftshift(np.fft.fftfreq(power.shape[1], 1/dx))
-        omega = np.fft.fftshift(np.fft.fftfreq(power.shape[0], 1/dt))
-        plt.pcolormesh(k, omega, np.fft.fftshift(power)[::-1])
-        plt.ylim(0, 2.5)
-        plt.xlim(-200, 200)
+        khat = np.fft.fftshift(np.fft.fftfreq(power.shape[1], 1.0/nx))      # non-dim wavenumber
+        k = khat / Lx                                                       # wavenumber in [m^-1]
+        what = np.fft.fftshift(np.fft.fftfreq(power.shape[0], 1/len(u_snapshot)))  # non-dim frequency
+        w = what * 2*np.pi / t
+        plt.pcolormesh(khat, w/np.sqrt(beta*c), np.fft.fftshift(power)[::-1])
+        plt.ylim(0, 0.7)
+        plt.xlim(-nx//2, nx//2)
+
+        # plot analytic kelvin wave
+        plt.plot(khat, c*k / np.sqrt(beta*c), color='black', linestyle='--')
+
         plt.title('dispertion')
-        plt.xlabel('k')
-        plt.ylabel('omega')
+        plt.xlabel('$k$')
+        plt.ylabel(r'$\omega / \beta k$')
         plt.pause(0.01)
 
 
