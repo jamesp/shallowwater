@@ -158,6 +158,13 @@ def uvath(u, v):
     return ubar, vbar
 
 
+def coriolis(y):
+    """Calculates the coriolis parameter value from the beta-plane approximation
+        f = f0 + βy
+    at a given y position."""
+    global f0, beta
+    return f0 + beta * y
+
 # damping at top and bottom of the domain
 ndamp = ny//5
 _r = np.exp(-np.linspace(0, 3, ndamp))[np.newaxis, :]*r
@@ -185,10 +192,10 @@ def rhs(state):
 
     # the u equation
     dhdx = diffx(h)[rmbd_y]
-    u_rhs[1:-1, 1:-1] = f0*vv + beta*uy*vv - g*dhdx + nu*del2(u) - sponge(u)[rmbd]
+    u_rhs[1:-1, 1:-1] = coriolis(uy)*vv - g*dhdx + nu*del2(u) - sponge(u)[rmbd]
     # the v equation
     dhdy = diffy(h)[rmbd_x]
-    v_rhs[1:-1, 1:-1] = -f0*uu - beta*vy*uu - g*dhdy + nu*del2(v) - sponge(v)[rmbd]
+    v_rhs[1:-1, 1:-1] = -coriolis(vy)*uu - g*dhdy + nu*del2(v) - sponge(v)[rmbd]
 
     return np.array([u_rhs, v_rhs, h_rhs])
 
