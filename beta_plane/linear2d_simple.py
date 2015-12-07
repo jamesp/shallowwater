@@ -201,7 +201,6 @@ def rhs(state):
 
 
 
-
 _ppdstate, _pdstate = 0,0
 def step(state):
     global dt, t, tc, _ppdstate, _pdstate
@@ -281,11 +280,11 @@ def plot_all(u,v,h):
         plt.pause(0.01)
 
 
-h[nx//2-5:nx//2+5, ny//2-5:ny//2+5] = np.exp(-(((np.indices((10,10)) - 5)/2.0)**2).sum(axis=0))
+# create a single disturbance in the middle of the domain
+# with amplitude 0.01*H
+h[nx//2-5:nx//2+5, ny//2-5:ny//2+5] = np.exp(-(((np.indices((10,10)) - 5)/2.0)**2).sum(axis=0))*H*0.01
 
 state = np.array([u, v, h])
-
-
 
 for i in range(100000):
     state = step(state)
