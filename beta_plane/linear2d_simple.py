@@ -17,6 +17,7 @@ h = H + η
 f = f0 + βy
 """
 
+from __future__ import print_function
 import numpy as np
 
 nx = 128
@@ -45,28 +46,36 @@ hy = uy
 
 f0 = 0.0
 beta = 2.3e-11
-nu = 0.1*0   # diffusion coefficient
-r =  0.1e-4   # damping coefficient
-g = 0.1
+nu = 5.0e-7             # diffusion
+r = 1.0e-5              # Rayleigh damping at top and bottom of domain
+g = 0.05
 H = 100.0
 
-dt = 4000.0
+dt = 3000.0
 t = 0.0
 tc = 0
 
 
-rmbd   = slice(1,-1), slice(1,-1)          # index an array with these to remove
-rmbd_y = slice(None, None), slice(1,-1)    # the boundary values on both sides
-rmbd_x = slice(1,-1), slice(None, None)    # or just x bdy, y bdy.
+
+
+sponge_ny = ny//5
+sponge = np.exp(-np.linspace(0, 3, sponge_ny))
+def damping(var, r=r):
+    # sponges are active at the top and bottom of the domain by applying Rayleigh friction
+    # with exponential decay towards the centre of the domain
+    global sponge, sponge_ny
+    var_sponge = np.zeros_like(var)
+    var_sponge[:, :sponge_ny] = sponge[np.newaxis, :]
+    var_sponge[:, -sponge_ny:] = sponge[np.newaxis, ::-1]
+    return r*var_sponge*var
+
 
 def _update_boundaries(*vars):
     u, v, h = vars[0:3]
 
     # solid walls left and right
-    # - 0 u velocities
-    # - free slip for v and h (zero derivative)
     u[0, :] = 0
-    u[-1:, :] = 0
+    u[-1, :] = 0
     v[0, :] = v[1, :]
     v[-1, :] = v[-2, :]
     h[0, :] = h[1, :]
@@ -78,7 +87,7 @@ def _update_boundaries(*vars):
         var[:, -1] = var[:, -2]
 
     	# fix corners to be average of neighbours
-        var[0, 0] = 0.5*(var[1, 0] + var[0, 1])
+        var[0, 0] =  0.5*(var[1, 0] + var[0, 1])
         var[-1, 0] = 0.5*(var[-2, 0] + var[-1, 1])
         var[0, -1] = 0.5*(var[1, -1] + var[0, -2])
         var[-1, -1] = 0.5*(var[-1, -2] + var[-2, -1])
@@ -148,8 +157,8 @@ def del2(phi):
 
 def uvatuv(u, v):
     """Calculate the value of u at v and v at u."""
-    ubar = centre_average(u)[rmbd_x]
-    vbar = centre_average(v)[rmbd_y]
+    ubar = centre_average(u)[1:-1, :]
+    vbar = centre_average(v)[:, 1:-1]
     return ubar, vbar
 
 def uvath(u, v):
@@ -158,47 +167,28 @@ def uvath(u, v):
     return ubar, vbar
 
 
-def coriolis(y):
-    """Calculates the coriolis parameter value from the beta-plane approximation
-        f = f0 + βy
-    at a given y position."""
-    global f0, beta
-    return f0 + beta * y
-
-# damping at top and bottom of the domain
-ndamp = ny//5
-_r = np.exp(-np.linspace(0, 3, ndamp))[np.newaxis, :]*r
-def sponge(phi):
-    global _r
-    # damp values at the top and bottom edges
-    damped = np.zeros_like(phi)
-    damped[:, :ndamp] = phi[:, :ndamp] * _r
-    damped[:, -ndamp:] = phi[:, -ndamp:] * _r[::-1]
-    return damped
-
 def rhs(state):
     """Calculate the right hand side of the u, v and h equations."""
     global f0, g, H
     u, v, h = state[0:3]
     uu, vv = uvatuv(u, v)
-    r = 0.01
     
     u_rhs = np.zeros_like(u)
     v_rhs = np.zeros_like(v)
     h_rhs = np.zeros_like(h)
 
     # the height equation
-    h_rhs[:] = -H*(divergence(u, v)) - sponge(h)
+    h_rhs[1:-1, 1:-1] = -H*(divergence(u, v))[1:-1, 1:-1] + nu*del2(h) - damping(h)[1:-1, 1:-1]
 
     # the u equation
-    dhdx = diffx(h)[rmbd_y]
-    u_rhs[1:-1, 1:-1] = coriolis(uy)*vv - g*dhdx + nu*del2(u) - sponge(u)[rmbd]
+    dhdx = diffx(h)[:, 1:-1]
+    u_rhs[1:-1, 1:-1] = f0*vv + beta*uy*vv - g*dhdx + nu*del2(u) - damping(u)[1:-1, 1:-1]
+     
     # the v equation
-    dhdy = diffy(h)[rmbd_x]
-    v_rhs[1:-1, 1:-1] = -coriolis(vy)*uu - g*dhdy + nu*del2(v) - sponge(v)[rmbd]
+    dhdy = diffy(h)[1:-1, :]
+    v_rhs[1:-1, 1:-1] = -f0*uu - beta*vy*uu - g*dhdy + nu*del2(v) - damping(v)[1:-1, 1:-1]
 
     return np.array([u_rhs, v_rhs, h_rhs])
-
 
 
 _ppdstate, _pdstate = 0,0
@@ -243,49 +233,50 @@ u_snapshot = []
 plt.figure(figsize=(12, 12))
 def plot_all(u,v,h):
     global timestamps, u_snapshot
-
-    plt.clf()
-    plt.subplot(221)
-    plt.imshow(u[1:-1, 1:-1].T, cmap=plt.cm.YlGnBu,
-            extent=[ux.min(), ux.max(), uy.min(), uy.max()])
-    plt.clim(-np.abs(u).max(), np.abs(u).max())
-    plt.title('u')
-
-    plt.subplot(222)
-    plt.imshow(v[1:-1, 1:-1].T, cmap=plt.cm.YlGnBu,
-            extent=[vx.min(), vx.max(), vy.min(), vy.max()])
-    plt.clim(-np.abs(v).max(), np.abs(v).max())
-    plt.title('v')
-
-    plt.subplot(223)
-    plt.imshow(h[1:-1, 1:-1].T, cmap=plt.cm.seismic,
-            extent=[hx.min(), hx.max(), hy.min(), hy.max()])
-    plt.clim(-np.abs(h).max(), np.abs(h).max())
-    plt.title('h')
-
-    #plt.colorbar(orientation='horizontal')
-
-    plt.subplot(224)
     timestamps.append(t)
     u_snapshot.append(state[0][:, ny//2])  # add equatorial zonal velocity to u_snapshot
-    if len(u_snapshot) % 2 == 0:
-        c = 2*np.pi*np.sqrt(g*H)
+    if len(timestamps) % 2 == 0:
+        plt.clf()
+        plt.subplot(221)
+        plt.imshow(u[1:-1, 1:-1].T, cmap=plt.cm.YlGnBu,
+                extent=np.array([ux.min(), ux.max(), uy.min(), uy.max()])/1000)
+        plt.clim(-np.abs(u).max(), np.abs(u).max())
+        plt.title('u')
+
+        plt.subplot(222)
+        plt.imshow(v[1:-1, 1:-1].T, cmap=plt.cm.YlGnBu,
+                extent=np.array([vx.min(), vx.max(), vy.min(), vy.max()])/1000)
+        plt.clim(-np.abs(v).max(), np.abs(v).max())
+        plt.title('v')
+
+        plt.subplot(223)
+        # plt.imshow(h[1:-1, 1:-1].T, cmap=plt.cm.RdBu,
+        #         extent=np.array([hx.min(), hx.max(), hy.min(), hy.max()])/1000)
+        plt.pcolormesh(h.T, cmap=plt.cm.RdBu)
+        plt.xlim(-10, nx+10)
+        plt.ylim(-10, ny+10)
+        plt.clim(-np.abs(h).max(), np.abs(h).max())
+        plt.title('h')
+
+        
+        plt.subplot(224)
+        c = np.sqrt(g*H)
         power = np.log(np.abs(np.fft.fft2(np.array(u_snapshot))**2))
-        khat = np.fft.fftshift(np.fft.fftfreq(power.shape[1], 1.0/nx))      # non-dim wavenumber
-        k = khat / Lx                                                       # wavenumber in [m^-1]
-        what = np.fft.fftshift(np.fft.fftfreq(power.shape[0], 1/len(u_snapshot)))  # non-dim frequency
-        w = what * 2*np.pi / t
-        plt.pcolormesh(khat, w/np.sqrt(beta*c), np.fft.fftshift(power)[::-1])
-        plt.ylim(0, 0.7)
+
+        khat = np.fft.fftshift(np.fft.fftfreq(power.shape[1], 1.0/nx))
+        k = khat / Ly
+
+        omega = np.fft.fftshift(np.fft.fftfreq(power.shape[0], dt))
+        w = omega / np.sqrt(beta*c)
+
+        plt.pcolormesh(khat, w, np.fft.fftshift(power)[::-1], cmap=plt.cm.RdBu)
+        plt.ylim(0, 20)
         plt.xlim(-nx//2, nx//2)
-
-        # plot analytic kelvin wave
-        plt.plot(khat, c*k / np.sqrt(beta*c), color='black', linestyle='--')
-
-        plt.title('dispertion')
-        plt.xlabel('$k$')
-        plt.ylabel(r'$\omega / \beta k$')
+        plt.title('dispersion')
+        plt.xlabel('k')
+        plt.ylabel('omega')
         plt.pause(0.01)
+    
 
 
 # create a single disturbance in the middle of the domain
@@ -294,10 +285,12 @@ h[nx//2-5:nx//2+5, ny//2-5:ny//2+5] = np.exp(-(((np.indices((10,10)) - 5)/2.0)**
 
 state = np.array([u, v, h])
 
+
+
 for i in range(100000):
     state = step(state)
     if i % 50 == 0:
         
         plot_all(*state)
-        print(state[2].min(), state[2].max())
+        print('[t={:7.2f} h range [{:.2f}, {:.2f}]'.format(t/86400, state[2].min(), state[2].max()))
 
