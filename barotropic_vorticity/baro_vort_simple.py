@@ -66,8 +66,10 @@ Lx = 1.0
 Ly = 1.0                        # domain size [m]
 ubar = 0.00                     # background zonal velocity  [m/s]
 beta = 1.7                      # beta-plane f = f0 + βy     [1/s 1/m]
-tau = 0.5                       # coefficient of dissipation
+tau = 1.0                       # coefficient of dissipation
                                 # smaller = more dissipation
+r_rayleigh = 1./20000.
+forcing_amp_factor=0.01
 
 t = 0.0
 tmax = 10000
@@ -207,7 +209,7 @@ z[:] = qi
 
 # initialise the transformed ζ
 zt[:] = ft(z)
-amp = np.max(np.abs(zt))        # calc a reasonable forcing amplitude
+amp = forcing_amp_factor* np.max(np.abs(zt))        # calc a reasonable forcing amplitude
 
 
 ## RUN THE SIMULATION
@@ -249,7 +251,7 @@ while t < tmax:
         dt = 1.1*dt
 
     # take a timestep and diffuse
-    rhs = -jact - beta*psixt + forcet
+    rhs = -jact - beta*psixt + forcet - zt*r_rayleigh
     zt[:] = adams_bashforth(zt, rhs, dt)
     del4 = 1.0 / (1.0 + nu*ksq**2*dt)
     zt[:] = zt * del4
