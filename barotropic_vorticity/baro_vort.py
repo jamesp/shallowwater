@@ -220,10 +220,8 @@ def integrate():
     jact = ft(jac)
     
     # avoid aliasing by eliminating short wavelengths
-    anti_alias(jact, k_max)
-    
-    
-    
+    #anti_alias(jact, k_max)
+
     # take a timestep
     rhs = -jact - beta*psixt
     zt_ = leapfrog(_zt, rhs, dt)
