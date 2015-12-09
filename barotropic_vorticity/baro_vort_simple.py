@@ -65,11 +65,14 @@ ny = 128                        # numerical resolution
 Lx = 1.0
 Ly = 1.0                        # domain size [m]
 ubar = 0.00                     # background zonal velocity  [m/s]
-beta = 1.7                      # beta-plane f = f0 + βy     [1/s 1/m]
-tau = 1.0                       # coefficient of dissipation
+beta = 5.0                      # beta-plane f = f0 + βy     [1/s 1/m]
+tau = 0.25                       # coefficient of dissipation
                                 # smaller = more dissipation
-r_rayleigh = 1./20000.
-forcing_amp_factor=0.01
+r_rayleigh = 1./200000.
+forcing_amp_factor=0.0001
+
+# r_rayleigh = 1./2000.
+# forcing_amp_factor=0.00001
 
 t = 0.0
 tmax = 10000
@@ -238,8 +241,8 @@ while t < tmax:
     # (could also apply some real-space forcing and then convert
     #   into spectral space before adding to rhs) 
     forcet = np.zeros_like(ksq)
-    idx = (40 < np.sqrt(ksq)) & (np.sqrt(ksq) < 60)
-    forcet[idx] = 0.5*amp*(np.random.random(ksq.shape)[idx] - 0.5)*np.sin(0.5*t)
+    idx = (40 < np.sqrt(ksq)/dk) & (np.sqrt(ksq)/dk < 45)
+    forcet[idx] = 0.5*amp*(np.random.random(ksq.shape)[idx] - 0.5)#*np.sin(0.5*t)
 
     # calculate the size of timestep that can be taken
     # (assumes a domain where dx and dy are of the same order)
@@ -250,17 +253,31 @@ while t < tmax:
     elif c < SPEEDUP_AT_C and ALLOW_SPEEDUP:
         dt = 1.1*dt
 
+# Possible use of time-varying dissipation, as in Maltrud & Vallis 1991, eq 2.6.
+# 	nu = 1.0 * np.sqrt(np.mean(z**2.))/(np.max(k)**2.)
+
+
+
+
+
     # take a timestep and diffuse
     rhs = -jact - beta*psixt + forcet - zt*r_rayleigh
     zt[:] = adams_bashforth(zt, rhs, dt)
     del4 = 1.0 / (1.0 + nu*ksq**2*dt)
     zt[:] = zt * del4
+    
+
 
     if t > tplot:
-        print('[{:5d}] {:.2f} Max z: {:2.2f} c={:.2f} dt={:.2f}'.format(
-            step, t, np.max(z), c, dt))
+        
+        # diagnostics
+        urms=np.sqrt(np.mean(psix**2 + psiy**2))
+        rhines_scale = np.sqrt(urms/beta)
+    
+        print('[{:5d}] {:.2f} Max z: {:2.2f} c={:.2f} dt={:.2f} rh_s={:.3f}'.format(
+            step, t, np.max(z), c, dt, rhines_scale))
         plt.clf()
-        plt.subplot(121)
+        plt.subplot(131)
         plt.imshow(z, extent=[0, Lx, 0, Ly], cmap=plt.cm.YlGnBu)
         plt.xlabel('x')
         plt.ylabel('y')
@@ -269,15 +286,26 @@ while t < tmax:
         plt.colorbar(orientation='horizontal')
         plt.title('Vorticity at {:.2f}s dt={:.2f}'.format(t, dt))
 
-        plt.subplot(122)
+        plt.subplot(132)
         power = np.fft.fftshift(np.abs(zt)**2, axes=(0,))
         power_norm = np.log(power)
-        plt.imshow(power_norm,
-                    extent=[np.min(k), np.max(k), np.min(l), np.max(l)])
-        plt.xlabel('k')
-        plt.ylabel('l')
+#         plt.imshow(power_norm,
+#                     extent=[np.min(k/dk), np.max(k/dk), np.min(l/dl), np.max(l/dl)])
+        plt.imshow(power_norm[32:95,0:31],
+                    extent=[k[0,0]/dk, k[0,31]/dk, l[32,0]/dl, l[95,0]/dl])                    
+
+        plt.xlabel('k/dk')
+        plt.ylabel('l/dl')
         plt.colorbar(orientation='horizontal')
         plt.title('Power Spectra')
+        
+    	ax1=plt.subplot(133)
+        ax1.plot(-np.mean(psiy,axis=1),np.linspace(0, Ly, num=ny))
+        
+        ax2=ax1.twiny()
+        ax2.plot(-np.mean(z,axis=1)+np.linspace(0, beta*Ly, num=ny),np.linspace(0, Ly, num=ny),'g')
+        
+        
         plt.pause(0.01)
         tplot = t + PLOT_EVERY_S
 
