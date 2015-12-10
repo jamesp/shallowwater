@@ -250,11 +250,11 @@ def plot_all(u,v,h):
         plt.title('v')
 
         plt.subplot(223)
-        # plt.imshow(h[1:-1, 1:-1].T, cmap=plt.cm.RdBu,
-        #         extent=np.array([hx.min(), hx.max(), hy.min(), hy.max()])/1000)
-        plt.pcolormesh(h.T, cmap=plt.cm.RdBu)
-        plt.xlim(-10, nx+10)
-        plt.ylim(-10, ny+10)
+        plt.imshow(h[1:-1, 1:-1].T, cmap=plt.cm.RdBu,
+                 extent=np.array([hx.min(), hx.max(), hy.min(), hy.max()])/1000)
+        #plt.pcolormesh(h.T, cmap=plt.cm.RdBu)
+        #plt.xlim(-10, nx+10)
+        #plt.ylim(-10, ny+10)
         plt.clim(-np.abs(h).max(), np.abs(h).max())
         plt.title('h')
 
