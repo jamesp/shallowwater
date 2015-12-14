@@ -60,23 +60,28 @@ from numpy.fft.fftpack import rfft2, irfft2
 
 
 ### Configuration
-nx = 128
-ny = 128                        # numerical resolution
+nx = 256
+ny = 256                        # numerical resolution
 Lx = 1.0
 Ly = 1.0                        # domain size [m]
 ubar = 0.00                     # background zonal velocity  [m/s]
-beta = 1.7                      # beta-plane f = f0 + βy     [1/s 1/m]
-tau = 0.5                       # coefficient of dissipation
+beta = 8.0                     # beta-plane f = f0 + βy     [1/s 1/m]
+n_diss = 2.0                    # Small-scale dissipation of the form ∆^2n_diss, such that n_diss = 2 would be a ∆^4 hyperviscosity. 
+tau = 0.1                       # coefficient of dissipation
                                 # smaller = more dissipation
+
+#Poorly determined coefficients for forcing and dissipation
+r_rayleigh = (1./50000.)/np.sqrt(10.)
+forcing_amp_factor=100.0/np.sqrt(1.)
 
 t = 0.0
 tmax = 10000
 step = 0
 
 ALLOW_SPEEDUP = True         # if True, allow the simulation to take a larger
-SPEEDUP_AT_C  = 0.6          # timestep when the Courant number drops below
+SPEEDUP_AT_C  = 0.4         # timestep when the Courant number drops below
                              # value of parameter SPEEDUP_AT_C
-SLOWDN_AT_C = 0.8            # reduce the timestep when Courant number
+SLOWDN_AT_C = 0.6            # reduce the timestep when Courant number
                              # is bigger than SLOWDN_AT_C
 PLOT_EVERY_S = 10
 
@@ -108,9 +113,9 @@ def grad(phit):
 def velocity(psit):
     """Returns the velocity field (u, v) from F[ψ]."""
     psixt, psiyt = grad(psit)
-    psix = ift(psixt)    # v = - ∂/∂x[ψ]
-    psiy = ift(psiyt)    # u =   ∂/∂y[ψ]
-    return (psiy, -psix)
+    psix = ift(psixt)    # v =   ∂/∂x[ψ]
+    psiy = ift(psiyt)    # u = - ∂/∂y[ψ]
+    return (-psiy, psix)
 
 def spectral_variance(phit):
     global nx, ny
@@ -118,8 +123,24 @@ def spectral_variance(phit):
     var_density[:,0] /= 2
     var_density[:,-1] /= 2
     return var_density.sum()
+    
+def anti_alias(phit):
+    """Set the coefficients of wavenumbers > k_mask to be zero."""
+    k_mask = (8./9.)*(nk+1)**2.
+    phit[(np.abs(ksq/(dk*dk)) >= k_mask)] = 0.0    
+    
+def high_wn_filter(phit):
+    """Applies the high wavenumber filter of smith et al 2002"""
+    filter_dec = -np.log(1.+2.*pi/nk)/((nk-kcut)**filter_exp)
+    filter_idx = np.abs(ksq/(dk*dk)) >= kcut**2.
+    phit[filter_idx] *= np.exp(filter_dec*(np.sqrt(ksq[filter_idx]/(dk*dk))-kcut)**filter_exp)
+    
+def forcing_spatial_mask(phi):    
+   """TODO: Make spatial mask for forcing"""
+   phi[idx_sp_mask] *= 0.
 
 _prhs, _pprhs  = 0.0, 0.0  # previous two right hand sides
+
 def adams_bashforth(zt, rhs, dt):
     """Take a single step forward in time using Adams-Bashforth 3."""
     global step, t, _prhs, _pprhs
@@ -155,6 +176,11 @@ dt = 0.4 * 16.0 / nx          # choose an initial dt. This will change
                               # as the simulation progresses to maintain
                               # numerical stability
 
+y = np.linspace(0, Ly, num=ny)
+y_arr = np.flipud(np.tile(y,(nx,1)).transpose())
+
+
+
 ### Spectral Domain
 dk = 2.0*pi/Lx
 dl = 2.0*pi/Ly
@@ -177,9 +203,13 @@ ik = 1j*k                       # wavenumber mul. imaginary unit is useful
 il = 1j*l                       # for calculating derivatives
 
 ## Dissipation & Spectral Filters
-# Use ∆^4 hyperviscosity to diffuse at small scales
+# Use ∆^2n_diss hyperviscosity to diffuse at small scales (i.e. n_diss = 2 would be ∆^4)
 # use the x-dimension for reference scale values
-nu = ((Lx/(np.floor(nx/3)*2.0*pi))**4)/tau
+nu = ((Lx/(np.floor(nx/3)*2.0*pi))**(2*n_diss))/tau
+
+#High wavenumber filter coefficients. Any waves with wavenumber below kcut are not dissipated at all.
+filter_exp = 8.
+kcut = 30.
 
 # Spectral Filter as per [Arbic and Flierl, 2003]
 wvx = np.sqrt((k*dx)**2 + (l*dy)**2)
@@ -190,30 +220,56 @@ spectral_filter[wvx <= 0.65*pi] = 1.0
 z = np.zeros((ny, nx), dtype=np.float64)
 zt = np.zeros((nl, nk), dtype=np.complex128)
 
+### Diagnostic arrays
+time_arr = np.zeros(1)
+tot_energy_arr = np.zeros(1)
+
+
 ### Initial Condition
 # The McWilliams Initial Condition from [McWilliams - J. Fluid Mech. (1984)]
 ck = np.zeros_like(ksq)
 ck = np.sqrt(ksq + (1.0 + (ksq/36.0)**2))**-1
-pit = np.random.randn(*ksq.shape)*ck + 1j*np.random.randn(*ksq.shape)*ck
+piit = np.random.randn(*ksq.shape)*ck + 1j*np.random.randn(*ksq.shape)*ck
 
-pi = ift(pit)
-pi = pi - pi.mean()
-pit = ft(pi)
-KE = spectral_variance(pit*np.sqrt(ksq)*spectral_filter)
+pii = ift(piit)
+pii = pii - pii.mean()
+piit = ft(pii)
+KE = spectral_variance(piit*np.sqrt(ksq)*spectral_filter)
 
-qit = -ksq * pit / np.sqrt(KE)
+qit = -ksq * piit / np.sqrt(KE)
 qi = ift(qit)
 z[:] = qi
 
 # initialise the transformed ζ
 zt[:] = ft(z)
-amp = np.max(np.abs(zt))        # calc a reasonable forcing amplitude
+anti_alias(zt)
+z[:]=ift(zt)
+
+amp = forcing_amp_factor* np.max(np.abs(qi))        # calc a reasonable forcing amplitude
+
+# initialise the storage arrays
+time_arr[0]=t
+
+psit = -rksq * zt           # F[ψ] = - F[ζ] / (k^2 + l^2)
+psixt, psiyt = grad(psit)
+psix = ift(psixt)
+psiy = ift(psiyt)
+    
+urms=np.sqrt(np.mean(psix**2 + psiy**2))
+tot_energy=0.5*urms**2.
+tot_energy_arr[0]=tot_energy
 
 
 ## RUN THE SIMULATION
 plt.ion()                       # plot in realtime
-plt.figure(figsize=(12, 6))
+plt.figure(figsize=(12, 12))
 tplot = t + PLOT_EVERY_S
+
+filter_testt=np.ones(zt.shape)
+high_wn_filter(filter_testt) #enables the profile of the high_wn_filter to be compared with deln, the equivalent for hyperviscosity.
+filter_testt_shift = np.fft.fftshift(filter_testt, axes=(0,))
+
+
 while t < tmax:
     # calculate derivatives in spectral space
     psit = -rksq * zt           # F[ψ] = - F[ζ] / (k^2 + l^2)
@@ -235,9 +291,9 @@ while t < tmax:
     # apply forcing in spectral space by exciting certain wavenumbers
     # (could also apply some real-space forcing and then convert
     #   into spectral space before adding to rhs) 
-    forcet = np.zeros_like(ksq)
-    idx = (40 < np.sqrt(ksq)) & (np.sqrt(ksq) < 60)
-    forcet[idx] = 0.5*amp*(np.random.random(ksq.shape)[idx] - 0.5)*np.sin(0.5*t)
+    forcet = np.zeros_like(ksq, dtype=complex)
+    idx = (14 < np.sqrt(ksq)/dk) & (np.sqrt(ksq)/dk < 20)
+    forcet[idx] = 0.5*amp*(np.random.random(ksq.shape)[idx] - 0.5)*np.exp(1j*2.*pi*np.random.random(ksq.shape)[idx])#*(ksq[idx])**(-1./4.)#*np.sin(0.5*t)
 
     # calculate the size of timestep that can be taken
     # (assumes a domain where dx and dy are of the same order)
@@ -248,17 +304,41 @@ while t < tmax:
     elif c < SPEEDUP_AT_C and ALLOW_SPEEDUP:
         dt = 1.1*dt
 
+# Possible use of time-varying dissipation, as in Maltrud & Vallis 1991, eq 2.6.
+# 	nu = 1.0 * np.sqrt(np.mean(z**2.))/(np.max(k)**(2.*n_diss -2.))
+
     # take a timestep and diffuse
-    rhs = -jact - beta*psixt + forcet
+    rhs = -jact - beta*psixt + forcet - zt*r_rayleigh
     zt[:] = adams_bashforth(zt, rhs, dt)
-    del4 = 1.0 / (1.0 + nu*ksq**2*dt)
-    zt[:] = zt * del4
+    deln = 1.0 / (1.0 + nu*ksq**n_diss*dt)
+#     zt[:] = zt * deln	#Testing without hyperviscosity, and with high_wn_filter instead. 
+    
+    #anti_alias
+    anti_alias(zt)
+
+    #high_wavenumber_filter
+    high_wn_filter(zt)
 
     if t > tplot:
-        print('[{:5d}] {:.2f} Max z: {:2.2f} c={:.2f} dt={:.2f}'.format(
-            step, t, np.max(z), c, dt))
+        
+        # diagnostics
+        urms=np.sqrt(np.mean(psix**2 + psiy**2))
+        rhines_scale = np.sqrt(urms/beta)
+        tot_energy=0.5*urms**2.
+        epsilon = 2 * r_rayleigh * tot_energy
+        l_epsilon = (epsilon / beta**3.)**(1./5.)
+        
+        time_arr=np.append(time_arr,t)
+        tot_energy_arr=np.append(tot_energy_arr,tot_energy)
+        
+        force=ift(forcet)
+
+        
+    
+        print('[{:5d}] {:.2f} Max z: {:2.2f} c={:.2f} dt={:.2f} rh_s={:.3f} l_eps={:.3f} ratio={:2.2f} urms={:2.2f}'.format(
+            step, t, np.max(z), c, dt, rhines_scale, l_epsilon, rhines_scale/l_epsilon, urms))
         plt.clf()
-        plt.subplot(121)
+        plt.subplot(231)
         plt.imshow(z, extent=[0, Lx, 0, Ly], cmap=plt.cm.YlGnBu)
         plt.xlabel('x')
         plt.ylabel('y')
@@ -267,15 +347,52 @@ while t < tmax:
         plt.colorbar(orientation='horizontal')
         plt.title('Vorticity at {:.2f}s dt={:.2f}'.format(t, dt))
 
-        plt.subplot(122)
+        plt.subplot(232)
         power = np.fft.fftshift(np.abs(zt)**2, axes=(0,))
         power_norm = np.log(power)
         plt.imshow(power_norm,
-                    extent=[np.min(k), np.max(k), np.min(l), np.max(l)])
-        plt.xlabel('k')
-        plt.ylabel('l')
+                    extent=[np.min(k/dk), np.max(k/dk), np.min(l/dl), np.max(l/dl)])
+#         plt.imshow(filter_testt_shift,
+#                     extent=[np.min(k/dk), np.max(k/dk), np.min(l/dl), np.max(l/dl)])                 
+
+
+        plt.xlabel('k/dk')
+        plt.ylabel('l/dl')
         plt.colorbar(orientation='horizontal')
         plt.title('Power Spectra')
+        
+    	ax1=plt.subplot(233)
+        ax1.plot(-np.mean(psiy,axis=1),np.linspace(0, Ly, num=ny))
+        ax1.axvline(0, color='black')
+        plt.xlabel('ubar')
+        
+        ax2=ax1.twiny()
+        ax2.plot(np.mean(z,axis=1)+beta*y,np.linspace(0, Ly, num=ny),'g')
+        plt.xlabel('qbar')
+
+        plt.subplot(234)
+        plt.imshow(z+beta*y_arr, extent=[0, Lx, 0, Ly], cmap=plt.cm.YlGnBu)
+        plt.xlabel('x')
+        plt.ylabel('y')
+        zmax = np.max(np.abs(z+beta*y_arr))
+        plt.clim(-zmax,zmax)
+        plt.colorbar(orientation='horizontal')
+        plt.title('Vorticity at {:.2f}s dt={:.2f}'.format(t, dt))
+
+        plt.subplot(235)
+        plt.plot(time_arr, tot_energy_arr)
+        plt.xlabel('Time')
+        plt.ylabel('Total Energy')
+        
+        plt.subplot(236)
+        plt.imshow(force, extent=[0, Lx, 0, Ly], cmap=plt.cm.YlGnBu)
+        plt.xlabel('x')
+        plt.ylabel('y')
+        forcemax = np.max(np.abs(force))
+        plt.clim(-forcemax,forcemax)
+        plt.colorbar(orientation='horizontal')
+        plt.title('Forcing at {:.2f}s dt={:.2f}'.format(t, dt))      
+        
         plt.pause(0.01)
         tplot = t + PLOT_EVERY_S
 
