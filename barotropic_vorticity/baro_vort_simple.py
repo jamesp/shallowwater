@@ -305,13 +305,13 @@ while t < tmax:
         dt = 1.1*dt
 
 # Possible use of time-varying dissipation, as in Maltrud & Vallis 1991, eq 2.6.
-# 	nu = 1.0 * np.sqrt(np.mean(z**2.))/(np.max(k)**(2.*n_diss -2.))
+#   nu = 1.0 * np.sqrt(np.mean(z**2.))/(np.max(k)**(2.*n_diss -2.))
 
     # take a timestep and diffuse
     rhs = -jact - beta*psixt + forcet - zt*r_rayleigh
     zt[:] = adams_bashforth(zt, rhs, dt)
     deln = 1.0 / (1.0 + nu*ksq**n_diss*dt)
-#     zt[:] = zt * deln	#Testing without hyperviscosity, and with high_wn_filter instead. 
+#     zt[:] = zt * deln #Testing without hyperviscosity, and with high_wn_filter instead. 
     
     #anti_alias
     anti_alias(zt)
@@ -361,7 +361,7 @@ while t < tmax:
         plt.colorbar(orientation='horizontal')
         plt.title('Power Spectra')
         
-    	ax1=plt.subplot(233)
+        ax1=plt.subplot(233)
         ax1.plot(-np.mean(psiy,axis=1),np.linspace(0, Ly, num=ny))
         ax1.axvline(0, color='black')
         plt.xlabel('ubar')
