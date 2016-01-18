@@ -1,9 +1,10 @@
 import numpy as np
-from linear2d import LinearShallowWater
+from linear2d import LinearShallowWater, adamsbashforthgen
 
 class NonLinearShallowWater(LinearShallowWater):
     def __init__(self, *args, **kwargs):
         super(NonLinearShallowWater, self).__init__(*args, **kwargs)
+        self._tracers = {}
 
     def nonlin_rhs(self):
         u_at_v, v_at_u = self.uvatuv()
@@ -29,9 +30,59 @@ class NonLinearShallowWater(LinearShallowWater):
         nonlinear_rhs = np.array([nonlin_u, nonlin_v, nonlin_h])
         return nonlinear_rhs
 
+    def tracer(self, name):
+        return self._tracers[name][0][1:-1, 1:-1]
+
+    def tracer_rhs(self, name):
+        q = self._tracers[name][0]
+
+        self._apply_boundary_conditions_to(q)
+
+        # advection
+        # u . grad q
+        dqdx = self.diffx(q)[:, 1:-1]
+        udqdx = self.x_average(self.u * dqdx)
+
+        dqdy = self.diffy(q)[1:-1, :]
+        vdqdy = self.y_average(self.v * dqdy)
+
+        # conservation
+        # q * div u
+        qc = q[1:-1, 1:-1] * self.divergence()
+
+        return - (udqdx + vdqdy + qc)
+
+
+    def add_tracer(self, name, initial_state, rhs=None):
+        state = np.zeros_like(self._h)  # tracer values held at cell centres
+        state[1:-1, 1:-1] = initial_state
+
+        if rhs is None:
+            def _rhs():
+                return self.tracer_rhs(name)
+            rhs = _rhs
+
+        stepper = adamsbashforthgen(rhs, self.dt)
+        self._tracers[name] = (state, stepper)
+
     def rhs(self):
         """Calculate the right hand side of the u, v and h equations."""
         # extend the linear dynamics to include nonlinear terms of the advection equation
         linear_rhs = super(NonLinearShallowWater, self).rhs()
+
         nonlinear_rhs = self.nonlin_rhs()
         return linear_rhs + nonlinear_rhs
+
+    def step(self):
+        dt, tc = self.dt, self.tc
+
+        newstate = self.state + next(self._stepper)
+
+        for name, (tstate, stepper) in self._tracers.items():
+            tstate[1:-1, 1:-1] = tstate[1:-1, 1:-1] + next(stepper)
+            print(name, np.max(tstate))
+
+        self.state = newstate
+
+        self.t  += dt
+        self.tc += 1
