@@ -33,7 +33,7 @@ class NonLinearShallowWater(LinearShallowWater):
     def tracer(self, name):
         return self._tracers[name][0][1:-1, 1:-1]
 
-    def tracer_rhs(self, name):
+    def tracer_conservation(self, name):
         q = self._tracers[name][0]
 
         self._apply_boundary_conditions_to(q)
@@ -50,19 +50,32 @@ class NonLinearShallowWater(LinearShallowWater):
         # q * div u
         qc = q[1:-1, 1:-1] * self.divergence()
 
-        return - (udqdx + vdqdy + qc)
+        return udqdx + vdqdy + qc
 
 
-    def add_tracer(self, name, initial_state, rhs=None):
+    def add_tracer(self, name, initial_state, rhs=0):
+        """Add a tracer to the shallow water model.
+
+        Dq/Dt + q(div u) = rhs
+
+        Tracers are advected by the flow.  `rhs` can be a constant
+        or a function that takes the shallow water object as a single argument.
+
+        Once a tracer has been added to the model it's value can be accessed
+        by the `tracer(name)` method.
+        """
+
         state = np.zeros_like(self._h)  # tracer values held at cell centres
         state[1:-1, 1:-1] = initial_state
 
-        if rhs is None:
+        if not callable(rhs):
             def _rhs():
-                return self.tracer_rhs(name)
-            rhs = _rhs
+                return -self.tracer_conservation(name)
+        else:
+            def _rhs():
+                return rhs(self) - self.tracer_conservation(name)
 
-        stepper = adamsbashforthgen(rhs, self.dt)
+        stepper = adamsbashforthgen(_rhs, self.dt)
         self._tracers[name] = (state, stepper)
 
     def rhs(self):
@@ -71,7 +84,7 @@ class NonLinearShallowWater(LinearShallowWater):
         linear_rhs = super(NonLinearShallowWater, self).rhs()
 
         nonlinear_rhs = self.nonlin_rhs()
-        return linear_rhs + nonlinear_rhs
+        return linear_rhs #+ nonlinear_rhs
 
     def step(self):
         dt, tc = self.dt, self.tc

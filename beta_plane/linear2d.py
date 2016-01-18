@@ -224,8 +224,9 @@ class LinearShallowWater(object):
         if 'periodicx' in self.bcond:
             for field in fields:
                 # copy the left rows over to the right
-                field[:2, :] = field[-3:-1, :]
+                field[-2, :] = field[1, :]
                 field[-1, :] = field[2, :]
+                field[0, :] = field[-3, :]
 
         # add solid walls on left and right: no zonal flow through them
         if 'wallsx' in self.bcond:
@@ -251,8 +252,9 @@ class LinearShallowWater(object):
     def _apply_boundary_conditions_to(self, field):
         if 'periodicx' in self.bcond:
             # copy the left rows over to the right
-            field[:2, :] = field[-3:-1, :]
+            field[-2, :] = field[1, :]
             field[-1, :] = field[2, :]
+            field[0, :] = field[-3, :]
 
         # add solid walls on left and right: no zonal flow through them
         if 'wallsx' in self.bcond:
@@ -294,11 +296,11 @@ class LinearShallowWater(object):
 
         # the u equation
         dhdx = self.diffx(self._h)[:, 1:-1]
-        u_rhs = (f0 + beta*self.uy)*vv - g*dhdx + nu*self.del2(self._u) - self.damping(self.u)
+        u_rhs = (f0 + beta*self.uy)*vv - g*dhdx #+ nu*self.del2(self._u) - self.damping(self.u)
 
         # the v equation
         dhdy  = self.diffy(self._h)[1:-1, :]
-        v_rhs = -(f0 + beta*self.vy)*uu - g*dhdy + nu*self.del2(self._v) - self.damping(self.v)
+        v_rhs = -(f0 + beta*self.vy)*uu - g*dhdy #+ nu*self.del2(self._v) - self.damping(self.v)
 
         dstate = np.array([u_rhs, v_rhs, h_rhs])
 
@@ -309,32 +311,6 @@ class LinearShallowWater(object):
 
     def step(self):
         dt, tc = self.dt, self.tc
-
-        self._apply_boundary_conditions()
-
-        # dstate = self.rhs()
-
-        # # take adams-bashforth step in time
-        # if tc==0:
-        #     # forward euler
-        #     dt1 = dt
-        #     dt2 = 0.0
-        #     dt3 = 0.0
-        # elif tc==1:
-        #     # AB2 at step 2
-        #     dt1 = 1.5*dt
-        #     dt2 = -0.5*dt
-        #     dt3 = 0.0
-        # else:
-        #     # AB3 from step 3 on
-        #     dt1 = 23./12.*dt
-        #     dt2 = -16./12.*dt
-        #     dt3 = 5./12.*dt
-
-        # newstate = self.state + dt1*dstate + dt2*self._pdstate + dt3*self._ppdstate
-        # self.state = newstate
-        # self._ppdstate = self._pdstate
-        # self._pdstate = dstate
 
         newstate = self.state + next(self._stepper)
         self.state = newstate
@@ -360,8 +336,6 @@ if __name__ == '__main__':
     #ocean.h[100:100+2*d, ny//2-d:ny//2+d] = (np.sin(np.linspace(0, np.pi, 2*d))**2)[np.newaxis, :] * (np.sin(np.linspace(0, np.pi, 2*d))**2)[:, np.newaxis]
     import matplotlib.pyplot as plt
 
-
-    atmos = LinearShallowWater(nx, ny, Lx, Ly, beta=beta, f0=0.0, g=3.0, H=10.0, dt=1000, bcond='periodicx')
     plt.ion()
 
     num_levels = 24
