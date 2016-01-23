@@ -381,9 +381,9 @@ if __name__ == '__main__':
             ts.append(ocean.t)
 
             spec = np.fft.fft2(eq_reg)
-            nk, nw = spec.shape
+            nw, nk = spec.shape
             plt.subplot(224)
-            plt.pcolormesh(np.fft.fftshift(np.log(np.abs(spec)))[nk//2-nk//4:nk//2+nk//4, nw//2-nw//4:nw//2+nw//4][::-1], cmap=plt.cm.bone)
+            plt.pcolormesh(np.fft.fftshift(np.log(np.abs(spec)))[nw//4:nw//2, nk//4:3*nk//4][::-1], cmap=plt.cm.bone)
 
             plt.pause(0.01)
             plt.draw()
