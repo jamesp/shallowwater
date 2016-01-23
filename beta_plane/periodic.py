@@ -405,19 +405,32 @@ if __name__ == '__main__':
 
     ocean = PeriodicShallowWater(nx, ny, Lx, Ly, beta=beta, f0=0.0, dt=dt, nu=1.0e3)
 
-    d = 25
+    d = 5
     hump = (np.sin(np.linspace(0, np.pi, 2*d))**2)[np.newaxis, :] * (np.sin(np.linspace(0, np.pi, 2*d))**2)[:, np.newaxis]
 
     ocean.phi[:] += phi0
-    ocean.phi[70-d:70+d, ny//2-d:ny//2+d] += hump*0.1
+    #ocean.phi[70-d:70+d, ny//2-d:ny//2+d] += hump*0.1
     #ocean.phi[:] -= hump.sum()/(ocean.nx*ocean.ny)
 
     initial_phi = ocean.phi.copy()
 
     q = np.zeros_like(ocean.phi)
     q[70-d:70+d, ny//2-d:ny//2+d] += hump
+    q0 = q.sum()
 
-    ocean.add_tracer('q', q)
+    def q_rhs(model):
+        return - (model.phi - phi0)*1e-6
+
+    ocean.add_tracer('q', q, q_rhs)
+
+    @ocean.add_forcing
+    def force_geopot(model):
+        dstate = np.zeros_like(model.state)
+        q = model.tracer('q')
+        gamma = 1e-6
+        dstate[2] = gamma*q
+        return dstate
+
 
     plt.ion()
 
@@ -425,6 +438,7 @@ if __name__ == '__main__':
     colorlevels = np.concatenate([np.linspace(-1, -.05, num_levels//2), np.linspace(.05, 1, num_levels//2)])
 
     en = []
+    qn = []
 
     eq_reg = []
     ts = []
@@ -454,7 +468,9 @@ if __name__ == '__main__':
 
             plt.subplot(232)
             en.append(np.sum(ocean.phi - initial_phi))
+            qn.append(ocean.tracer('q').sum() - q0)
             plt.plot(en)
+            plt.plot(qn)
             plt.title('Geopotential Loss')
 
             plt.subplot(233)
