@@ -95,6 +95,50 @@ class PeriodicShallowWater(object):
         self._stepper = adamsbashforthgen(self.rhs, self.dt)
 
         self._forcings = []
+        self._tracers  = {}
+
+    def add_tracer(self, name, initial_state, rhs=0):
+        """Add a tracer to the shallow water model.
+
+        Dq/Dt + q(∇ . u) = rhs
+
+        Tracers are advected by the flow.  `rhs` can be a constant
+        or a function that takes the shallow water object as a single argument.
+
+        Once a tracer has been added to the model it's value can be accessed
+        by the `tracer(name)` method.
+        """
+
+        state = np.zeros_like(self._phi)  # tracer values held at cell centres
+        state[1:-1, 1:-1] = initial_state
+
+        if not callable(rhs):
+            def _rhs():
+                return -self.tracer_conservation(name)
+        else:
+            def _rhs():
+                return rhs(self) - self.tracer_conservation(name)
+
+        stepper = adamsbashforthgen(_rhs, self.dt)
+        self._tracers[name] = (state, stepper)
+
+    def tracer(self, name):
+        return self._tracers[name][0][1:-1, 1:-1]
+
+    def tracer_conservation(self, name):
+        """Calculates the conservation of an advected tracer.
+
+        ∂[q]/∂t + ∇ . (uq) = 0
+
+        Returns the divergence term i.e. ∇.(uq)
+        """
+        q = self._tracers[name][0]
+
+        # the height equation
+        q_at_u = self.x_average(q)[:, 1:-1]  # (nx+1, ny)
+        q_at_v = self.y_average(q)[1:-1, :]  # (nx, ny+1)
+
+        return self.diffx(q_at_u * self.u) - self.diffy(q_at_v * self.v)  # (nx, ny)
 
     # define u, v and h properties to return state without the boundaries
     @property
@@ -313,6 +357,10 @@ class PeriodicShallowWater(object):
         dt, tc = self.dt, self.tc
 
         self._apply_boundary_conditions()
+        for (field, stepper) in self._tracers.values():
+            self._apply_boundary_conditions_to(field)
+            field[1:-1, 1:-1] = field[1:-1, 1:-1] + next(stepper)
+
 
         newstate = self.state + next(self._stepper)
         self.state = newstate
@@ -360,11 +408,16 @@ if __name__ == '__main__':
     d = 25
     hump = (np.sin(np.linspace(0, np.pi, 2*d))**2)[np.newaxis, :] * (np.sin(np.linspace(0, np.pi, 2*d))**2)[:, np.newaxis]
 
-
     ocean.phi[:] += phi0
     ocean.phi[70-d:70+d, ny//2-d:ny//2+d] += hump*0.1
+    #ocean.phi[:] -= hump.sum()/(ocean.nx*ocean.ny)
 
     initial_phi = ocean.phi.copy()
+
+    q = np.zeros_like(ocean.phi)
+    q[70-d:70+d, ny//2-d:ny//2+d] += hump
+
+    ocean.add_tracer('q', q)
 
     plt.ion()
 
@@ -388,39 +441,51 @@ if __name__ == '__main__':
             eq_reg = eq_reg[-1000:]
             ts = ts[-1000:]
 
-        if i % 40 == 0:
+        if i % 100 == 0:
 
-            plt.figure(1, figsize=(12,12))
+            plt.figure(1, figsize=(16,12))
             plt.clf()
 
-            plt.subplot(221)
-            plt.plot(ocean.phi[:, ny//2])
-            plt.plot(ocean.phi[:, ny//2+8])
-            plt.ylim(phi0*.99, phi0*1.01)
-            plt.title('Equatorial Height')
+            plt.subplot(231)
+            x, y = np.meshgrid(ocean.phix/ocean.Lx, ocean.phiy/ocean.Ly)
+            plt.contourf(x, y, ocean.phi.T, cmap=plt.cm.RdBu, levels=phi0+colorlevels*phi0*0.01)
+            plt.xlim(-0.5, 0.5)
+            plt.title('Geopotential')
 
+            plt.subplot(232)
             en.append(np.sum(ocean.phi - initial_phi))
-            plt.subplot(222)
             plt.plot(en)
             plt.title('Geopotential Loss')
 
-            plt.subplot(223)
-            plt.contourf(ocean.phi.T, cmap=plt.cm.RdBu, levels=phi0+colorlevels*phi0*0.01)
-            plt.title('Geopotential')
-
+            plt.subplot(233)
             spec = np.fft.fft2(eq_reg)
             spec = spec - background(spec, 10, 0)
             nw, nk = spec.shape
-            plt.subplot(224)
             om = np.fft.fftshift(np.fft.fftfreq(nw, 10.0/dt))
             k = np.fft.fftshift(np.fft.fftfreq(nk, 1.0/nk))
             #plt.pcolormesh(np.fft.fftshift(np.log(np.abs(spec)))[4*nw//10:nw//2, nk//4:3*nk//4][::-1], cmap=plt.cm.bone)
             log_spec=np.log(np.abs(spec)**2)
             plt.pcolormesh(k, om, np.fft.fftshift(log_spec)[::-1], cmap=plt.cm.bone)
             plt.xlim(-40, 40)
-            plt.ylim(0, 100)
+            plt.ylim(0, 50)
             plt.clim(log_spec.min()*0.3, log_spec.max()*0.7)
-            plt.colorbar()
+
+
+            plt.subplot(234)
+            plt.plot(ocean.phix/ocean.Lx, ocean.phi[:, ny//2])
+            plt.plot(ocean.phix/ocean.Lx, ocean.phi[:, ny//2+8])
+            plt.xlim(-0.5, 0.5)
+            plt.ylim(phi0*.99, phi0*1.01)
+            plt.title('Equatorial Height')
+
+
+            plt.subplot(235)
+            plt.contourf(x, y, ocean.tracer('q').T, cmap=plt.cm.RdBu, levels=colorlevels)
+
+
+
+
+
             plt.pause(0.01)
             plt.draw()
 
