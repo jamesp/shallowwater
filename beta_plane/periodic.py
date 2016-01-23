@@ -329,15 +329,18 @@ if __name__ == '__main__':
     Lx = 1.0e7
     Ly = 1.0e7
 
-    ocean = PeriodicShallowWater(nx, ny, Lx, Ly, beta=beta, f0=0.0, dt=3000, nu=1.0e3)
-    #ocean.phi[10:20, 60:80] = 1.0
-    #ocean.phi[-20:-10] = 1.0
-    d = 25
-    ocean.phi[70-d:70+d, ny//2-d:ny//2+d] = (np.sin(np.linspace(0, np.pi, 2*d))**2)[np.newaxis, :] * (np.sin(np.linspace(0, np.pi, 2*d))**2)[:, np.newaxis]*0.1
-    ocean.phi[:] += 10.0
+    phi0 = 10.0
 
-    IC = ocean.phi.copy()
-    #ocean.phi[100:100+2*d, ny//2-d:ny//2+d] = (np.sin(np.linspace(0, np.pi, 2*d))**2)[np.newaxis, :] * (np.sin(np.linspace(0, np.pi, 2*d))**2)[:, np.newaxis]
+    ocean = PeriodicShallowWater(nx, ny, Lx, Ly, beta=beta, f0=0.0, dt=3000, nu=1.0e3)
+
+    d = 25
+    hump = (np.sin(np.linspace(0, np.pi, 2*d))**2)[np.newaxis, :] * (np.sin(np.linspace(0, np.pi, 2*d))**2)[:, np.newaxis]
+
+    ocean.phi[70-d:70+d, ny//2-d:ny//2+d] = hump*0.1
+    ocean.phi[:] += phi0
+
+    initial_phi = ocean.phi.copy()
+
     import matplotlib.pyplot as plt
 
     plt.ion()
@@ -346,27 +349,41 @@ if __name__ == '__main__':
     colorlevels = np.concatenate([np.linspace(-1, -.05, num_levels//2), np.linspace(.05, 1, num_levels//2)])
 
     en = []
+
+    eq_reg = []
+    ts = []
+
     plt.show()
     for i in range(100000):
         ocean.step()
 
         if i % 20 == 0:
 
-            plt.figure(1)
+            plt.figure(1, figsize=(12,12))
             plt.clf()
+
+            plt.subplot(221)
             plt.plot(ocean.phi[:, ny//2])
+            plt.plot(ocean.phi[:, ny//2+8])
+            plt.ylim(phi0*.99, phi0*1.01)
             plt.title('Equatorial Height')
 
-            en.append(np.sum(ocean.phi - IC))
-            plt.figure(2)
-            plt.clf()
+            en.append(np.sum(ocean.phi - initial_phi))
+            plt.subplot(222)
             plt.plot(en)
-            plt.title('Total Geopotential')
+            plt.title('Geopotential Loss')
 
-            plt.figure(3)
-            plt.clf()
-            plt.contourf(ocean.phi.T, cmap=plt.cm.RdBu, levels=10+colorlevels*0.1)
+            plt.subplot(223)
+            plt.contourf(ocean.phi.T, cmap=plt.cm.RdBu, levels=phi0+colorlevels*phi0*0.01)
             plt.title('Geopotential')
+
+            eq_reg.append(np.sum(ocean.phi[:, ny//2-5:ny//2+5], axis=1))
+            ts.append(ocean.t)
+
+            spec = np.fft.fft2(eq_reg)
+            nk, nw = spec.shape
+            plt.subplot(224)
+            plt.pcolormesh(np.fft.fftshift(np.log(np.abs(spec)))[nk//2-nk//4:nk//2+nk//4, nw//2-nw//4:nw//2+nw//4][::-1], cmap=plt.cm.bone)
 
             plt.pause(0.01)
             plt.draw()
