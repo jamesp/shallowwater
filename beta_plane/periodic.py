@@ -305,8 +305,8 @@ class PeriodicShallowWater(object):
 
         dstate = np.array([u_rhs, v_rhs, phi_rhs])
 
-        # for fn in self._forcings:
-        #     dstate += fn(self)
+        for fn in self._forcings:
+            dstate += fn(self)
 
         return dstate
 
@@ -322,6 +322,7 @@ class PeriodicShallowWater(object):
 
 
 if __name__ == '__main__':
+    import matplotlib.pyplot as plt
 
     nx = 128
     ny = 129
@@ -336,12 +337,11 @@ if __name__ == '__main__':
     d = 25
     hump = (np.sin(np.linspace(0, np.pi, 2*d))**2)[np.newaxis, :] * (np.sin(np.linspace(0, np.pi, 2*d))**2)[:, np.newaxis]
 
-    ocean.phi[70-d:70+d, ny//2-d:ny//2+d] = hump*0.1
+
     ocean.phi[:] += phi0
+    ocean.phi[70-d:70+d, ny//2-d:ny//2+d] += hump*0.1
 
     initial_phi = ocean.phi.copy()
-
-    import matplotlib.pyplot as plt
 
     plt.ion()
 
@@ -357,7 +357,12 @@ if __name__ == '__main__':
     for i in range(100000):
         ocean.step()
 
-        if i % 20 == 0:
+        if i % 10 == 0:
+            eq = ocean.u[:, ny//2-5:ny//2+5]
+            eq_reg.append(np.sum(eq, axis=1))
+            ts.append(ocean.t)
+
+        if i % 50 == 0:
 
             plt.figure(1, figsize=(12,12))
             plt.clf()
@@ -376,9 +381,6 @@ if __name__ == '__main__':
             plt.subplot(223)
             plt.contourf(ocean.phi.T, cmap=plt.cm.RdBu, levels=phi0+colorlevels*phi0*0.01)
             plt.title('Geopotential')
-
-            eq_reg.append(np.sum(ocean.phi[:, ny//2-5:ny//2+5], axis=1))
-            ts.append(ocean.t)
 
             spec = np.fft.fft2(eq_reg)
             nw, nk = spec.shape
