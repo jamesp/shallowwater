@@ -264,7 +264,6 @@ class PeriodicShallowWater(object):
     def rhs(self):
         """Calculate the right hand side of the u, v and h equations."""
 
-        self._apply_boundary_conditions()
         u_at_v, v_at_u = self.uvatuv()   # (nx, ny+1), (nx+1, ny)
         ubarx = self.x_average(self._u)[:, 1:-1]    # u averaged to v lons
         ubary = self.y_average(self._u)[1:-1, :]    # u averaged to v lats
@@ -313,6 +312,8 @@ class PeriodicShallowWater(object):
     def step(self):
         dt, tc = self.dt, self.tc
 
+        self._apply_boundary_conditions()
+
         newstate = self.state + next(self._stepper)
         self.state = newstate
 
@@ -351,9 +352,10 @@ if __name__ == '__main__':
     Lx = 1.0e7
     Ly = 1.0e7
 
+    dt = 3000.0
     phi0 = 10.0
 
-    ocean = PeriodicShallowWater(nx, ny, Lx, Ly, beta=beta, f0=0.0, dt=3000, nu=1.0e3)
+    ocean = PeriodicShallowWater(nx, ny, Lx, Ly, beta=beta, f0=0.0, dt=dt, nu=1.0e3)
 
     d = 25
     hump = (np.sin(np.linspace(0, np.pi, 2*d))**2)[np.newaxis, :] * (np.sin(np.linspace(0, np.pi, 2*d))**2)[:, np.newaxis]
@@ -383,7 +385,10 @@ if __name__ == '__main__':
             eq_reg.append(np.sum(eq, axis=1))
             ts.append(ocean.t)
 
-        if i % 50 == 0:
+            eq_reg = eq_reg[-1000:]
+            ts = ts[-1000:]
+
+        if i % 40 == 0:
 
             plt.figure(1, figsize=(12,12))
             plt.clf()
@@ -407,8 +412,15 @@ if __name__ == '__main__':
             spec = spec - background(spec, 10, 0)
             nw, nk = spec.shape
             plt.subplot(224)
-            plt.pcolormesh(np.fft.fftshift(np.log(np.abs(spec)))[nw//4:nw//2, nk//4:3*nk//4][::-1], cmap=plt.cm.bone)
-
+            om = np.fft.fftshift(np.fft.fftfreq(nw, 10.0/dt))
+            k = np.fft.fftshift(np.fft.fftfreq(nk, 1.0/nk))
+            #plt.pcolormesh(np.fft.fftshift(np.log(np.abs(spec)))[4*nw//10:nw//2, nk//4:3*nk//4][::-1], cmap=plt.cm.bone)
+            log_spec=np.log(np.abs(spec)**2)
+            plt.pcolormesh(k, om, np.fft.fftshift(log_spec)[::-1], cmap=plt.cm.bone)
+            plt.xlim(-40, 40)
+            plt.ylim(0, 100)
+            plt.clim(log_spec.min()*0.3, log_spec.max()*0.7)
+            plt.colorbar()
             plt.pause(0.01)
             plt.draw()
 
