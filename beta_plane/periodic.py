@@ -323,6 +323,27 @@ class PeriodicShallowWater(object):
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
+    import scipy.signal
+
+    def background(spectra, fsteps=10, ksteps=10):
+        """Uses a 1-2-1 filter to generate 'red noise' background field for a spectra (as per WK1998)
+            `fsteps` is the number of times to apply the filter in the frequency direction
+            `ksteps` is the number of times to apply the filter in the wavenumber direction
+
+        Returns a background field of same dimensions as `spectra`.
+        """
+        # create a 1D 1-2-1 averaging footprint
+        bgf = spectra
+        for i in range(fsteps):
+            # repeated application of the 1-2-1 blur filter to the spectra
+            footprint = np.array([[0,1,0], [0,2,0], [0,1,0]]) / 4.0
+            bgf = scipy.signal.convolve2d(bgf, footprint, mode='same', boundary='wrap')
+        for i in range(ksteps):
+            # repeated application of the 1-2-1 blur filter to the spectra
+            footprint = np.array([[0,0,0], [1,2,1], [0,0,0]]) / 4.0
+            bgf = scipy.signal.convolve2d(bgf, footprint, mode='same', boundary='wrap')
+
+        return bgf
 
     nx = 128
     ny = 129
@@ -383,6 +404,7 @@ if __name__ == '__main__':
             plt.title('Geopotential')
 
             spec = np.fft.fft2(eq_reg)
+            spec = spec - background(spec, 10, 0)
             nw, nk = spec.shape
             plt.subplot(224)
             plt.pcolormesh(np.fft.fftshift(np.log(np.abs(spec)))[nw//4:nw//2, nk//4:3*nk//4][::-1], cmap=plt.cm.bone)
