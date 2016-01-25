@@ -2,8 +2,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy.signal
 
-from periodic import PeriodicShallowWater
-
+from nonlinear2d import PeriodicShallowWater
+from spectral_analysis import kiladis_spectra, background
 
 nx = 128
 ny = 129
@@ -29,70 +29,6 @@ initial_phi = ocean.phi.copy()
 
 num_levels = 24
 colorlevels = np.concatenate([np.linspace(-1, -.05, num_levels//2), np.linspace(.05, 1, num_levels//2)])
-
-def best_fit(xs, ys):
-    """Using the method of least squares, return the gradient
-    and y-intercept of the line of best fit through xs and ys."""
-    A = np.array([xs, np.ones(len(xs))])
-    return np.linalg.lstsq(A.T,ys)[0]
-
-def kiladis_spectra(u, dt=1.0, dx=1.0):
-    """Perform Wheeler-Kiladis Spectral Analysis on variable u.
-
-        spinup: discard the first `spinup` days as initialisation
-
-    Returns frequency-wavenumber spectra for each latitude.
-    """
-    v = np.asarray(u)
-    nt, nx, ny = v.shape
-
-    ts = np.arange(nt)*dt
-    xs = np.arange(nx)*dx
-
-    fts = []
-    for j in range(ny):
-        data = v[:,:,j]                    # u in time and longitude at given latitude
-        lng_avg = data.mean(axis=1)        # average u at each timestep
-        m, c = best_fit(ts, lng_avg)       # trend in time
-
-        # remove the trend of u over time to leave perturbations centred on zero
-        perturbations = data - (m*ts + c)[:, np.newaxis]
-
-        # window tapering - make the ends of the time window approach zero
-        #                 - use a cos^2 profile over a small number of samples at each end
-        taper = 30
-        perturbations[:taper,:] = perturbations[:taper,:] * (np.cos(np.linspace(-np.pi/2, 0, taper))**2)[:, np.newaxis]
-        perturbations[-taper:,:] = perturbations[-taper:,:] * (np.cos(np.linspace(0, np.pi/2, taper))**2)[:, np.newaxis]
-
-        lft = np.fft.fft(perturbations, axis=1)     # FFT in space
-        tft = np.fft.fft(lft, axis=0)               # FFT in time
-        fts.append(tft)
-    fts = np.array(fts)
-    # fourier transform in numpy is defined by exp(-2pi i (kx + wt))
-    # but we want exp(kx - wt) so need to negate the x-domain
-    fts = fts[:, :, ::-1]
-    return fts
-
-
-def background(spectra, fsteps=10, ksteps=10):
-    """Uses a 1-2-1 filter to generate 'red noise' background field for a spectra (as per WK1998)
-        `fsteps` is the number of times to apply the filter in the frequency direction
-        `ksteps` is the number of times to apply the filter in the wavenumber direction
-
-    Returns a background field of same dimensions as `spectra`.
-    """
-    # create a 1D 1-2-1 averaging footprint
-    bgf = spectra
-    for i in range(fsteps):
-        # repeated application of the 1-2-1 blur filter to the spectra
-        footprint = np.array([[0,1,0], [0,2,0], [0,1,0]]) / 4.0
-        bgf = scipy.signal.convolve2d(bgf, footprint, mode='same', boundary='wrap')
-    for i in range(ksteps):
-        # repeated application of the 1-2-1 blur filter to the spectra
-        footprint = np.array([[0,0,0], [1,2,1], [0,0,0]]) / 4.0
-        bgf = scipy.signal.convolve2d(bgf, footprint, mode='same', boundary='wrap')
-
-    return bgf
 
 
 en = []
