@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from linear2d import LinearShallowWater
-from nonlinear2d import NonLinearShallowWater
+from nonlinear import NonLinearShallowWater
 
 
 
