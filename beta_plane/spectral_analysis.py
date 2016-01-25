@@ -47,7 +47,7 @@ def kiladis_spectra(u, dt=1.0, dx=1.0):
 
         # window tapering - make the ends of the time window approach zero
         #                 - use a cos^2 profile over a small number of samples at each end
-        taper = 30
+        taper = min(15, nt//20)  # taper over 30 time points, or 10% of the domain, whichever is smaller
         perturbations[:taper,:] = perturbations[:taper,:] * (np.cos(np.linspace(-np.pi/2, 0, taper))**2)[:, np.newaxis]
         perturbations[-taper:,:] = perturbations[-taper:,:] * (np.cos(np.linspace(0, np.pi/2, taper))**2)[:, np.newaxis]
 

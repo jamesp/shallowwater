@@ -266,26 +266,7 @@ class WalledShallowWater(NonLinShallowWater):
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
     import scipy.signal
-
-    def background(spectra, fsteps=10, ksteps=10):
-        """Uses a 1-2-1 filter to generate 'red noise' background field for a spectra (as per WK1998)
-            `fsteps` is the number of times to apply the filter in the frequency direction
-            `ksteps` is the number of times to apply the filter in the wavenumber direction
-
-        Returns a background field of same dimensions as `spectra`.
-        """
-        # create a 1D 1-2-1 averaging footprint
-        bgf = spectra
-        for i in range(fsteps):
-            # repeated application of the 1-2-1 blur filter to the spectra
-            footprint = np.array([[0,1,0], [0,2,0], [0,1,0]]) / 4.0
-            bgf = scipy.signal.convolve2d(bgf, footprint, mode='same', boundary='wrap')
-        for i in range(ksteps):
-            # repeated application of the 1-2-1 blur filter to the spectra
-            footprint = np.array([[0,0,0], [1,2,1], [0,0,0]]) / 4.0
-            bgf = scipy.signal.convolve2d(bgf, footprint, mode='same', boundary='wrap')
-
-        return bgf
+    from spectral_analysis import background, kiladis_spectra
 
     nx = 128
     ny = 129
@@ -344,8 +325,8 @@ if __name__ == '__main__':
         ocean.step()
 
         if i % 10 == 0:
-            eq = ocean.u[:, ny//2-5:ny//2+5]
-            eq_reg.append(np.sum(eq, axis=1))
+            eq = ocean.u.copy()[:, ny//2-5:ny//2+5]
+            eq_reg.append(eq)
             ts.append(ocean.t)
 
             eq_reg = eq_reg[-1000:]
@@ -370,18 +351,17 @@ if __name__ == '__main__':
             plt.title('Geopotential Loss')
 
             plt.subplot(233)
-            spec = np.fft.fft2(eq_reg)
-            spec = spec - background(spec, 10, 0)
-            nw, nk = spec.shape
-            om = np.fft.fftshift(np.fft.fftfreq(nw, 10.0/dt))
-            k = np.fft.fftshift(np.fft.fftfreq(nk, 1.0/nk))
-            #plt.pcolormesh(np.fft.fftshift(np.log(np.abs(spec)))[4*nw//10:nw//2, nk//4:3*nk//4][::-1], cmap=plt.cm.bone)
-            log_spec=np.log(np.abs(spec)**2)
-            plt.pcolormesh(k, om, np.fft.fftshift(log_spec)[::-1], cmap=plt.cm.bone)
-            plt.xlim(-40, 40)
-            plt.ylim(0, 50)
-            plt.clim(log_spec.min()*0.3, log_spec.max()*0.7)
-
+            if len(ts) > 50:
+                specs = kiladis_spectra(eq_reg)
+                spec = np.sum(specs, axis=0)
+                nw, nk = spec.shape
+                fspec = np.fft.fftshift(spec)
+                fspec -= background(fspec, 10, 0)
+                om = np.fft.fftshift(np.fft.fftfreq(nw, ts[1]-ts[0]))
+                k = np.fft.fftshift(np.fft.fftfreq(nk, 1.0/nk))
+                plt.pcolormesh(k, om, np.log(1+np.abs(fspec)), cmap=plt.cm.bone)
+                plt.xlim(-15, 15)
+                plt.ylim(-0.00002, 0.00002)
 
             plt.subplot(234)
             plt.plot(ocean.phix/ocean.Lx, ocean.phi[:, ny//2])

@@ -48,7 +48,7 @@ for i in range(100000):
     #qbar[:] = ocean.tracer('q').mean()
 
     if i % 10 == 0:
-        eq_reg.append(ocean.u.copy())
+        eq_reg.append(ocean.u.copy()[:, ny//2-5:ny//2+5])
         ts.append(ocean.t)
 
     if i % 40 == 0:
@@ -82,7 +82,7 @@ for i in range(100000):
 
         if len(ts) > 50:
             specs = kiladis_spectra(eq_reg)
-            spec = np.sum(specs[ny//2-5:ny//2+5, :, :], axis=0)
+            spec = np.sum(specs, axis=0)
             nw, nk = spec.shape
             fspec = np.fft.fftshift(spec)
             fspec -= background(fspec, 10, 0)
@@ -90,8 +90,8 @@ for i in range(100000):
             k = np.fft.fftshift(np.fft.fftfreq(nk, 1.0/nk))
             #plt.pcolormesh(k, om, np.log(1 + np.abs(spec)**2))
             plt.pcolormesh(k, om, np.log(1+np.abs(fspec)), cmap=plt.cm.bone)
-            #plt.xlim(-15, 15)
-            #plt.ylim(0, 0.00002)
+            plt.xlim(-15, 15)
+            plt.ylim(-0.00002, 0.00002)
         # spec = np.fft.fft2(eq_reg)
         # #spec = spec - background(spec, 10, 0)
         # nw, nk = spec.shape
