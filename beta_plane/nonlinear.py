@@ -4,13 +4,13 @@
 """Shallow Water Model
 
 - Two dimensional shallow water in a rotating frame
-- Staggered Arakawa-C lat:lon grid
-- periodic in the x-dimension
-- fixed boundary conditions in the y-dimension
+- Staggered Arakawa-C grid
+- periodic or bounded in the x-dimension
+- fixed boundary conditions in the y-dimension (free slip)
 
-∂/∂t[u] - fv = - g ∂/∂x[φ]
-∂/∂t[v] + fu = - g ∂/∂y[φ]
-∂/∂t[φ] + H(∂/∂x[u] + ∂/∂y[v]) = 0
+D/Dt[u] - fv = - ∂/∂x[φ]
+D/Dt[v] + fu = - ∂/∂y[φ]
+D/Dt[φ] + φ (∂/∂x[u] + ∂/∂y[v]) = 0
 
 f = f0 + βy
 φ = gh
