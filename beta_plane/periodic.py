@@ -97,13 +97,15 @@ class PeriodicShallowWater(object):
         self._forcings = []
         self._tracers  = {}
 
-    def add_tracer(self, name, initial_state, rhs=0):
+    def add_tracer(self, name, initial_state, rhs=0, kappa=0.0, apply_damping=True):
         """Add a tracer to the shallow water model.
 
-        Dq/Dt + q(∇ . u) = rhs
+        Dq/Dt + q(∇ . u) = k∆q + rhs
 
         Tracers are advected by the flow.  `rhs` can be a constant
         or a function that takes the shallow water object as a single argument.
+
+        `kappa` is a coefficient of dissipation.
 
         Once a tracer has been added to the model it's value can be accessed
         by the `tracer(name)` method.
@@ -112,12 +114,17 @@ class PeriodicShallowWater(object):
         state = np.zeros_like(self._phi)  # tracer values held at cell centres
         state[1:-1, 1:-1] = initial_state
 
-        if not callable(rhs):
-            def _rhs():
-                return -self.tracer_conservation(name)
-        else:
-            def _rhs():
-                return rhs(self) - self.tracer_conservation(name)
+        def _rhs():
+            orhs = -self.tracer_conservation(name)
+            if kappa:
+                orhs += kappa*self.del2(state)
+            if apply_damping:
+                orhs += -self.damping(state[1:-1, 1:-1])
+            if callable(rhs):
+                orhs += rhs(self)
+            else:
+                orhs += rhs
+            return orhs
 
         stepper = adamsbashforthgen(_rhs, self.dt)
         self._tracers[name] = (state, stepper)
@@ -333,7 +340,7 @@ class PeriodicShallowWater(object):
         u_rhs  = -dhdx + (self.f0 + self.beta*self.uy)*v_at_u
         u_rhs += self.nu*self.del2(self._u)
         u_rhs += - ududx - vdudy               # nonlin u advection terms
-        #u_rhs -= self.damping(self.u)
+        u_rhs -= self.damping(self.u)
 
 
         # the v equation
@@ -344,7 +351,7 @@ class PeriodicShallowWater(object):
         v_rhs  = -dhdy -(self.f0 + self.beta*self.vy)*u_at_v
         v_rhs += self.nu*self.del2(self._v)
         v_rhs += - udvdx - vdvdy
-        #v_rhs -= self.damping(self.v)
+        v_rhs -= self.damping(self.v)
 
         dstate = np.array([u_rhs, v_rhs, phi_rhs])
 
@@ -405,7 +412,7 @@ if __name__ == '__main__':
 
     ocean = PeriodicShallowWater(nx, ny, Lx, Ly, beta=beta, f0=0.0, dt=dt, nu=1.0e3)
 
-    d = 5
+    d = 6
     hump = (np.sin(np.linspace(0, np.pi, 2*d))**2)[np.newaxis, :] * (np.sin(np.linspace(0, np.pi, 2*d))**2)[:, np.newaxis]
 
     ocean.phi[:] += phi0
@@ -415,11 +422,14 @@ if __name__ == '__main__':
     initial_phi = ocean.phi.copy()
 
     q = np.zeros_like(ocean.phi)
-    q[70-d:70+d, ny//2-d:ny//2+d] += hump
+    q[nx//2-d:nx//2+d, ny//2-d:ny//2+d] += hump
     q0 = q.sum()
 
     def q_rhs(model):
-        return - (model.phi - phi0)*1e-6
+        q = model.tracer('q').copy()
+        minq = np.zeros_like(q)
+        minq[q < 0] = -q[q<0]
+        return - (model.phi - phi0)*1e-6# + minq*0.1
 
     ocean.add_tracer('q', q, q_rhs)
 
@@ -497,7 +507,10 @@ if __name__ == '__main__':
 
             plt.subplot(235)
             plt.contourf(x, y, ocean.tracer('q').T, cmap=plt.cm.RdBu, levels=colorlevels)
-
+            c = plt.Circle((0,0), float(d)/nx/2, fill=False)
+            plt.gca().add_artist(c)
+            plt.xlim(-.5, .5)
+            plt.ylim(-.5, .5)
 
 
 
