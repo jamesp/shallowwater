@@ -21,7 +21,7 @@ ocean.phi[:] += phi0
 d = 25
 hump = (np.sin(np.linspace(0, np.pi, 2*d))**2)[np.newaxis, :] * (np.sin(np.linspace(0, np.pi, 2*d))**2)[:, np.newaxis]
 
-ocean.phi[nx//2-d:nx//2+d, ny//2-d:ny//2+d] += hump*1.0
+ocean.phi[nx//2-d:nx//2+d, ny//2-d:ny//2+d] += hump*3.0
 #ocean.phi[nx//4-d:nx//4+d, ny//2-d:ny//2+d] += -hump*5.0
 initial_phi = ocean.phi.copy()
 
@@ -154,8 +154,8 @@ for i in range(100000):
             k = np.fft.fftshift(np.fft.fftfreq(nk, 1.0/nk))
             #plt.pcolormesh(k, om, np.log(1 + np.abs(spec)**2))
             plt.pcolormesh(k, om, np.log(1+np.abs(fspec)), cmap=plt.cm.bone)
-            plt.xlim(-15, 15)
-            plt.ylim(0, 0.00002)
+            #plt.xlim(-15, 15)
+            #plt.ylim(0, 0.00002)
         # spec = np.fft.fft2(eq_reg)
         # #spec = spec - background(spec, 10, 0)
         # nw, nk = spec.shape
