@@ -1,23 +1,21 @@
+from __future__ import division
+
 import matplotlib.pyplot as plt
 import numpy as np
 
 from nonlinear import PeriodicShallowWater
-
+from plotting import plot_wind_arrows
 
 nx = 128
 ny = 129
 
-Lx = 1.5e7
-Ly = 1.5e7
-
-
-
-phi0 = 100.0
-phic = phi0*1.00
-
 
 # Radius of deformation: Rd = sqrt(2 c / β)
 Rd = 1000.0e3  # Fix Rd at 1000km
+
+Lx = 20*Rd
+Ly = 20*Rd
+
 beta=2.28e-11
 c = Rd**2 * beta  # Kelvin/gravity wave speed: c = sqrt(phi0)
 
@@ -29,8 +27,8 @@ dx  = Ly / nx
 dt = np.floor(cfl * dx / (c*4))  # TODO check this calculation for c-grid
 print('dt', dt)
 
-gamma = 4e-4
-tau = dt*10.0
+gamma = 3e-4
+tau = dt*20.0
 
 ocean = PeriodicShallowWater(nx, ny, Lx, Ly, beta=beta, f0=0.0, dt=dt, nu=5.0e4)
 ocean.phi[:] += phi0
@@ -38,7 +36,7 @@ ocean.phi[:] += phi0
 
 # Add a lump of fluid with scale 2 Rd
 d = (Ly // Rd)
-hump = (np.sin(np.linspace(0, np.pi, 2*d))**2)[np.newaxis, :] * (np.sin(np.linspace(0, np.pi, 2*d))**2)[:, np.newaxis]
+hump = (np.sin(np.arange(0, np.pi, np.pi/(2*d)))**2)[np.newaxis, :] * (np.sin(np.arange(0, np.pi, np.pi/(2*d)))**2)[:, np.newaxis]
 
 @ocean.add_forcing
 def rhs(model):
@@ -62,6 +60,8 @@ colorlevels = np.concatenate([np.linspace(-1, -.05, num_levels//2), np.linspace(
 
 plt.show()
 for i in range(100000):
+
+
     ocean.step()
 
     if i % 10 == 0:
@@ -73,6 +73,10 @@ for i in range(100000):
         plt.subplot(211)
         x, y = np.meshgrid(ocean.phix/Rd, ocean.phiy/Rd)
         plt.contourf(x, y, ocean.phi.T, cmap=plt.cm.RdBu, levels=phi0+colorlevels*phi0*0.01)
+        plot_wind_arrows(ocean, (x,y), narrows=(25,25), hide_below=0.01)
+
+
+
         #plt.xlim(-0.5, 0.5)
         # # Kelvin wavespeed tracer
         # kx = ((ocean.t*np.sqrt(phi0)/Lx % 1) - .5)
