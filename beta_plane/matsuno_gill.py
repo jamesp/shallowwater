@@ -29,8 +29,8 @@ dx  = Ly / nx
 dt = np.floor(cfl * dx / (c*4))  # TODO check this calculation for c-grid
 print('dt', dt)
 
-gamma = 2e-4
-tau = dt*30.0
+gamma = 4e-4
+tau = dt*10.0
 
 ocean = PeriodicShallowWater(nx, ny, Lx, Ly, beta=beta, f0=0.0, dt=dt, nu=5.0e4)
 ocean.phi[:] += phi0
@@ -48,7 +48,7 @@ def rhs(model):
     dphi = np.zeros_like(phi)
 
     #  Fixed heating on equator
-    dphi[nx//4-d:nx//4+d, ny//2-d:ny//2+d] = hump*gamma
+    dphi[nx//2-d:nx//2+d, ny//2-d:ny//2+d] = hump*gamma
     #  Newtonian relaxation
     dphi -= (phi - phi0)/tau
 
@@ -71,25 +71,31 @@ for i in range(100000):
 
         plt.suptitle('State at T=%.2f days' % (ocean.t / 86400.0))
         plt.subplot(211)
-        x, y = np.meshgrid(ocean.phix/ocean.Lx, ocean.phiy/ocean.Ly)
+        x, y = np.meshgrid(ocean.phix/Rd, ocean.phiy/Rd)
         plt.contourf(x, y, ocean.phi.T, cmap=plt.cm.RdBu, levels=phi0+colorlevels*phi0*0.01)
-        plt.xlim(-0.5, 0.5)
-        # Kelvin wavespeed tracer
-        kx = ((ocean.t*np.sqrt(phi0)/Lx % 1) - .5)
+        #plt.xlim(-0.5, 0.5)
+        # # Kelvin wavespeed tracer
+        # kx = ((ocean.t*np.sqrt(phi0)/Lx % 1) - .5)
+        # plt.scatter([kx], [0.4], label='sqrt(phi) tracer')
         # Heating souce location
-        c = plt.Circle((-0.25,0), float(d)/nx/2, fill=False)
+        c = plt.Circle((0,0), 0.5, fill=False)
         plt.gca().add_artist(c)
-        plt.scatter([kx], [0.4], label='sqrt(phi) tracer')
+        plt.text(0, 0.7, 'Heating')
+        plt.xlabel('x (multiples of Rd)')
+        plt.ylabel('y (multiples of Rd)')
+        plt.xlim(-Lx/Rd/2, Lx/Rd/2)
+        plt.ylim(-Ly/Rd/2, Ly/Rd/2)
         plt.title('Geopotential')
 
         plt.subplot(212)
-        plt.plot(ocean.phix/ocean.Lx, ocean.phi[:, ny//2], label='equator')
-        plt.plot(ocean.phix/ocean.Lx, ocean.phi[:, ny//2+(Ly//Rd//2)], label='tropics')
-        plt.xlim(-0.5, 0.5)
+        plt.plot(ocean.phix/Rd, ocean.phi[:, ny//2], label='equator')
+        plt.plot(ocean.phix/Rd, ocean.phi[:, ny//2+(Ly//Rd//2)], label='tropics')
         plt.ylim(phi0*.99, phi0*1.01)
         plt.legend(loc='lower right')
         plt.title('Longitudinal Geopotential')
-
+        plt.xlabel('x (multiples of Rd)')
+        plt.ylabel('Geopotential')
+        plt.xlim(-Lx/Rd/2, Lx/Rd/2)
         plt.pause(0.01)
         plt.draw()
 
