@@ -18,7 +18,7 @@ f = f0 + βy
 
 import numpy as np
 
-from arakawac import ArakawaCGrid
+from arakawac import ArakawaCGrid, PeriodicBoundaries, WallBoundaries
 from timesteppers import adamsbashforthgen
 
 
@@ -191,81 +191,13 @@ class NonLinShallowWater(ArakawaCGrid):
         self.t  += dt
         self.tc += 1
 
-class PeriodicShallowWater(NonLinShallowWater):
-    """Shallow Water equations periodic in the x-direction."""
-    def __init__(self, nx, ny, Lx=1.0e7, Ly=1.0e7, f0=0, beta=2.0e-11, nu=1.0e-5, r=1.0e-5, dt=1000.0):
-        super(PeriodicShallowWater, self).__init__(nx, ny, Lx, Ly, f0, beta, nu, r, dt)
-
-    def _apply_boundary_conditions(self):
-        # left and right-hand boundaries are the same for u
-        self._u[0, :] = self._u[-3, :]
-        self._u[1, :] = self._u[-2, :]
-        self._u[-1, :] = self._u[2, :]
-
-        self._v[0, :] = self._v[-2, :]
-        self._v[-1, :] = self._v[1, :]
-        self._phi[0, :] = self._phi[-2, :]
-        self._phi[-1, :] = self._phi[1, :]
-
-        fields = self._u, self._v, self._phi
-        # top and bottom boundaries: zero deriv and damping
-        for field in fields:
-            field[:, 0] = field[:, 1]
-            field[:, -1] = field[:, -2]
-            self._fix_boundary_corners(field)
-
-    def _apply_boundary_conditions_to(self, field):
-        # periodic boundary in the x-direction
-        field[0, :] = field[-2, :]
-        field[-1, :] = field[1, :]
-
-        # top and bottom boundaries: zero deriv and damping
-        field[:, 0] = field[:, 1]
-        field[:, -1] = field[:, -2]
-
-        self._fix_boundary_corners(field)
-
-class WalledShallowWater(NonLinShallowWater):
-    """Shallow Water with solid boundaries at x=0, x=Lx."""
-    def __init__(self, nx, ny, Lx=1.0e7, Ly=1.0e7, f0=0, beta=2.0e-11, nu=1.0e-5, r=1.0e-5, dt=1000.0):
-        super(WalledShallowWater, self).__init__(nx, ny, Lx, Ly, f0, beta, nu, r, dt)
-
-    def _apply_boundary_conditions(self):
-        # No flow through the boundary at x=0
-        self._u[0, :] = 0
-        self._u[1, :] = 0
-        self._u[-1, :] = 0
-        self._u[-2, :] = 0
-
-        # free-slip of other variables: zero-derivative
-        self._v[0, :] = self._v[1, :]
-        self._v[-1, :] = self._v[-2, :]
-        self._phi[0, :] = self._phi[1, :]
-        self._phi[-1, :] = self._phi[-2, :]
-
-        fields = self._u, self._v, self._phi
-        # top and bottom boundaries: zero deriv
-        for field in fields:
-            field[:, 0] = field[:, 1]
-            field[:, -1] = field[:, -2]
-            self._fix_boundary_corners(field)
-
-    def _apply_boundary_conditions_to(self, field):
-        # free slip on left and right boundares: zero derivative
-        field[0, :] = field[1, :]
-        field[-1, :] = field[-2, :]
-
-        # top and bottom boundaries: zero deriv and damping
-        field[:, 0] = field[:, 1]
-        field[:, -1] = field[:, -2]
-
-        self._fix_boundary_corners(field)
+class PeriodicShallowWater(PeriodicBoundaries, NonLinShallowWater): pass
+class WalledShallowWater(WallBoundaries, NonLinShallowWater): pass
 
 
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
-    import scipy.signal
     from spectral_analysis import background, kiladis_spectra
 
     nx = 128
@@ -277,7 +209,7 @@ if __name__ == '__main__':
     dt = 3000.0
     phi0 = 10.0
 
-    ocean = PeriodicShallowWater(nx, ny, Lx, Ly, beta=beta, f0=0.0, dt=dt, nu=1.0e3)
+    ocean = WalledShallowWater(nx, ny, Lx, Ly, beta=beta, f0=0.0, dt=dt, nu=1.0e3)
 
     d = 25
     hump = (np.sin(np.linspace(0, np.pi, 2*d))**2)[np.newaxis, :] * (np.sin(np.linspace(0, np.pi, 2*d))**2)[:, np.newaxis]

@@ -150,3 +150,82 @@ class ArakawaCGrid(object):
         """Set the boundary values of a given field.
         This should be implemented by a subclass."""
         raise NotImplemented
+
+
+
+class PeriodicBoundaries:
+    """Peridoic domain in the x-direction.
+    This is a mixin class for the ArakawaCGrid to produce a grid with
+    periodic boundaries in the x-direction.
+    """
+    def _apply_boundary_conditions(self):
+        # left and right-hand boundary values the same for u
+        # u[0] = u[nx]
+        # copy u[dx] to u[nx+dx]
+        # and u[nx-dx] to u[-dx]
+        # to simulate periodic continuity
+        self._u[0, :] = self._u[-3, :]
+        self._u[1, :] = self._u[-2, :]
+        self._u[-1, :] = self._u[2, :]
+
+        # other fields are not on boundary
+        # so just simulate periodic continuity
+        self._v[0, :] = self._v[-2, :]
+        self._v[-1, :] = self._v[1, :]
+        self._phi[0, :] = self._phi[-2, :]
+        self._phi[-1, :] = self._phi[1, :]
+
+        # top and bottom boundaries: zero derivative
+        fields = self._u, self._v, self._phi
+        for field in fields:
+            field[:, 0] = field[:, 1]
+            field[:, -1] = field[:, -2]
+            self._fix_boundary_corners(field)
+
+    def _apply_boundary_conditions_to(self, field):
+        # periodic boundary in the x-direction
+        field[0, :] = field[-2, :]
+        field[-1, :] = field[1, :]
+
+        # top and bottom boundaries: zero derivative
+        field[:, 0] = field[:, 1]
+        field[:, -1] = field[:, -2]
+
+        self._fix_boundary_corners(field)
+
+
+class WallBoundaries:
+    """Add walls to the domain at x=0 and x=Lx.
+    This is a mixin class for the ArakawaCGrid to produce a grid with
+    walled boundaries in the x-direction.
+    """
+    def _apply_boundary_conditions(self):
+        # No flow through the boundary at x=0
+        self._u[0, :] = 0
+        self._u[1, :] = 0
+        self._u[-1, :] = 0
+        self._u[-2, :] = 0
+
+        # free-slip of other variables: zero-derivative
+        self._v[0, :] = self._v[1, :]
+        self._v[-1, :] = self._v[-2, :]
+        self._phi[0, :] = self._phi[1, :]
+        self._phi[-1, :] = self._phi[-2, :]
+
+        fields = self._u, self._v, self._phi
+        # top and bottom boundaries: zero deriv
+        for field in fields:
+            field[:, 0] = field[:, 1]
+            field[:, -1] = field[:, -2]
+            self._fix_boundary_corners(field)
+
+    def _apply_boundary_conditions_to(self, field):
+        # free slip on left and right boundares: zero derivative
+        field[0, :] = field[1, :]
+        field[-1, :] = field[-2, :]
+
+        # top and bottom boundaries: zero deriv and damping
+        field[:, 0] = field[:, 1]
+        field[:, -1] = field[:, -2]
+
+        self._fix_boundary_corners(field)

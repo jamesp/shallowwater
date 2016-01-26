@@ -22,7 +22,7 @@ import numpy as np
 
 import numpy as np
 
-from arakawac import ArakawaCGrid
+from arakawac import ArakawaCGrid, PeriodicBoundaries, WallBoundaries
 from timesteppers import adamsbashforthgen
 
 
@@ -92,7 +92,7 @@ class LinearShallowWater(ArakawaCGrid):
         """Calculate the right hand side of the u, v and h equations."""
         f0, beta, g, H, nu = self.f0, self.beta, self.g, self.H, self.nu
 
-        self.apply_boundary_conditions()
+        self._apply_boundary_conditions()
         uu, vv = self.uvatuv()
 
         # the height equation
@@ -123,29 +123,8 @@ class LinearShallowWater(ArakawaCGrid):
         self.t  += dt
         self.tc += 1
 
-class PeriodicLinearShallowWater(LinearShallowWater):
-    """Shallow Water equations periodic in the x-direction."""
-    def __init__(self, nx, ny, Lx=1.0e7, Ly=1.0e7, f0=0.0, beta=2.0e-11, g=9.8, H=10.0, nu=1.0e-5, r=1.0e-5, dt=1000.0):
-        super(PeriodicLinearShallowWater, self).__init__(nx, ny, Lx, Ly, f0, beta, g, H, nu, r, dt)
-
-    def apply_boundary_conditions(self):
-        # left and right-hand boundaries are the same for u
-        self._u[0, :] = self._u[-3, :]
-        self._u[1, :] = self._u[-2, :]
-        self._u[-1, :] = self._u[2, :]
-
-        self._v[0, :] = self._v[-2, :]
-        self._v[-1, :] = self._v[1, :]
-        self._phi[0, :] = self._phi[-2, :]
-        self._phi[-1, :] = self._phi[1, :]
-
-        fields = self._u, self._v, self._phi
-        # top and bottom boundaries: zero deriv and damping
-        for field in fields:
-            field[:, 0] = field[:, 1]
-            field[:, -1] = field[:, -2]
-            self._fix_boundary_corners(field)
-
+class PeriodicLinearShallowWater(PeriodicBoundaries, LinearShallowWater): pass
+class WalledLinearShallowWater(WallBoundaries, LinearShallowWater): pass
 
 
 if __name__ == '__main__':
