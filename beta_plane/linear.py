@@ -8,17 +8,14 @@
 - periodic in the x-dimension
 - fixed boundary conditions in the y-dimension
 
-h = H + η
+η = H + h
 
-∂/∂t[u] - fv = - g ∂/∂x[η]
-∂/∂t[v] + fu = - g ∂/∂y[η]
+∂/∂t[u] - fv = - g ∂/∂x[h]
+∂/∂t[v] + fu = - g ∂/∂y[h]
 ∂/∂t[h] + H(∂/∂x[u] + ∂/∂y[v]) = 0
 
 f = f0 + βy
 """
-
-import numpy as np
-
 
 import numpy as np
 
