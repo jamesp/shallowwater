@@ -27,18 +27,18 @@ dx  = Ly / nx
 dt = np.floor(cfl * dx / (c*4))  # TODO check this calculation for c-grid
 print('dt', dt)
 
-gamma = 3e-4
+gamma = 2.0e-4
 tau = dt*20.0
 
-ocean = PeriodicShallowWater(nx, ny, Lx, Ly, beta=beta, f0=0.0, dt=dt, nu=5.0e4)
-ocean.phi[:] += phi0
+atmos = PeriodicShallowWater(nx, ny, Lx, Ly, beta=beta, f0=0.0, dt=dt, nu=5.0e4)
+atmos.phi[:] += phi0
 
 
 # Add a lump of fluid with scale 2 Rd
 d = (Ly // Rd)
 hump = (np.sin(np.arange(0, np.pi, np.pi/(2*d)))**2)[np.newaxis, :] * (np.sin(np.arange(0, np.pi, np.pi/(2*d)))**2)[:, np.newaxis]
 
-@ocean.add_forcing
+@atmos.add_forcing
 def rhs(model):
     phi = model.phi
 
@@ -46,7 +46,7 @@ def rhs(model):
     dphi = np.zeros_like(phi)
 
     #  Fixed heating on equator
-    dphi[nx//2-d:nx//2+d, ny//2-d:ny//2+d] = hump*gamma
+    dphi[nx//2-d:nx//2+d, ny//2-d:ny//2+d] = -hump*gamma
     #  Newtonian relaxation
     dphi -= (phi - phi0)/tau
 
@@ -62,24 +62,24 @@ plt.show()
 for i in range(100000):
 
 
-    ocean.step()
+    atmos.step()
 
     if i % 10 == 0:
 
         plt.figure(1, figsize=(8, 12))
         plt.clf()
 
-        plt.suptitle('State at T=%.2f days' % (ocean.t / 86400.0))
+        plt.suptitle('State at T=%.2f days' % (atmos.t / 86400.0))
         plt.subplot(211)
-        x, y = np.meshgrid(ocean.phix/Rd, ocean.phiy/Rd)
-        plt.contourf(x, y, ocean.phi.T, cmap=plt.cm.RdBu, levels=phi0+colorlevels*phi0*0.01)
-        plot_wind_arrows(ocean, (x,y), narrows=(25,25), hide_below=0.01)
+        x, y = np.meshgrid(atmos.phix/Rd, atmos.phiy/Rd)
+        plt.contourf(x, y, atmos.phi.T, cmap=plt.cm.RdBu, levels=phi0+colorlevels*phi0*0.01)
+        plot_wind_arrows(atmos, (x,y), narrows=(25,25), hide_below=0.01)
 
 
 
         #plt.xlim(-0.5, 0.5)
         # # Kelvin wavespeed tracer
-        # kx = ((ocean.t*np.sqrt(phi0)/Lx % 1) - .5)
+        # kx = ((atmos.t*np.sqrt(phi0)/Lx % 1) - .5)
         # plt.scatter([kx], [0.4], label='sqrt(phi) tracer')
         # Heating souce location
         c = plt.Circle((0,0), 0.5, fill=False)
@@ -92,8 +92,8 @@ for i in range(100000):
         plt.title('Geopotential')
 
         plt.subplot(212)
-        plt.plot(ocean.phix/Rd, ocean.phi[:, ny//2], label='equator')
-        plt.plot(ocean.phix/Rd, ocean.phi[:, ny//2+(Ly//Rd//2)], label='tropics')
+        plt.plot(atmos.phix/Rd, atmos.phi[:, ny//2], label='equator')
+        plt.plot(atmos.phix/Rd, atmos.phi[:, ny//2+(Ly//Rd//2)], label='tropics')
         plt.ylim(phi0*.99, phi0*1.01)
         plt.legend(loc='lower right')
         plt.title('Longitudinal Geopotential')
