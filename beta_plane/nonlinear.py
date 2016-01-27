@@ -181,10 +181,11 @@ class NonLinShallowWater(ArakawaCGrid):
         self._apply_boundary_conditions()
         for (field, stepper) in self._tracers.values():
             self._apply_boundary_conditions_to(field)
-            field[1:-1, 1:-1] = field[1:-1, 1:-1] + next(stepper)
-
 
         newstate = self.state + next(self._stepper)
+        for (field, stepper) in self._tracers.values():
+            field[1:-1, 1:-1] = field[1:-1, 1:-1] + next(stepper)
+
         self.state = newstate
 
 
