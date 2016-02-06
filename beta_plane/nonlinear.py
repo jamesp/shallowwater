@@ -41,32 +41,89 @@ class NonLinShallowWater(ArakawaCGrid):
         self.tc = 0  # number of timesteps taken
         self.t = 0.0
 
-        self._stepper = adamsbashforthgen(self.rhs, self.dt)
+        self._stepper = adamsbashforthgen(self._dynamics, self.dt)
 
-        self._forcings = []
-        self._tracers  = {}
-
-
-
-    def add_forcing(self, fn):
-        """Add a forcing term to the model.  Typically used as a decorator:
-
-            sw = PeriodicShallowWater(nx, ny)
-
-            @sw.add_forcing
-            def dissipate(swmodel):
-                dstate = np.zeros_like(swmodel.state)
-                dstate[:] = -swmodel.state*0.001
-                return dstate
-
-        Forcing functions should take a single argument for the model object itself,
-        and return a state delta the same shape as state.
-        """
-        self._forcings.append(fn)
-        return fn
+    def damping(self, var):
+        # sponges are active at the top and bottom of the domain by applying Rayleigh friction
+        # with exponential decay towards the centre of the domain
+        var_sponge = np.zeros_like(var)
+        var_sponge[:, :self.sponge_ny] = self.sponge[np.newaxis, :]
+        var_sponge[:, -self.sponge_ny:] = self.sponge[::-1][np.newaxis, :]
+        return self.r*var_sponge*var
 
 
+    def dynamics(self):
+        """Calculate the dynamics for the u, v and phi equations."""
 
+        u_at_v, v_at_u = self.uvatuv()   # (nx, ny+1), (nx+1, ny)
+        ubarx = self.x_average(self._u)[:, 1:-1]    # u averaged to v lons
+        ubary = self.y_average(self._u)[1:-1, :]    # u averaged to v lats
+
+        vbary = self.y_average(self._v)[1:-1, :]
+        vbarx = self.x_average(self._v)[:, 1:-1]
+
+
+        # the height equation
+        phi_at_u = self.x_average(self._phi)[:, 1:-1]  # (nx+1, ny)
+        phi_at_v = self.y_average(self._phi)[1:-1, :]  # (nx, ny+1)
+
+        phi_rhs  = - self.diffx(phi_at_u * self.u) - self.diffy(phi_at_v * self.v)  # (nx, ny)
+        phi_rhs += self.nu*self.del2(self._phi)  # diffusion
+        #phi_rhs -= self.damping(self.phi)        # damping at top and bottom boundaries
+
+
+        # the u equation
+        dhdx = self.diffx(self._phi)[:, 1:-1]  # (nx+2, ny)
+        ududx = 0.5*self.diffx(ubarx**2)            # u*du/dx at u points
+        vdudy = v_at_u*self.diffy(ubary)            # v*du/dy at u points
+
+        u_rhs  = -dhdx + (self.f0 + self.beta*self.uy)*v_at_u
+        u_rhs += self.nu*self.del2(self._u)
+        u_rhs += - ududx - vdudy               # nonlin u advection terms
+        u_rhs -= self.damping(self.u)
+
+
+        # the v equation
+        dhdy  = self.diffy(self._phi)[1:-1, :]
+        udvdx = u_at_v*self.diffx(vbarx)
+        vdvdy = 0.5*self.diffy(vbary**2)            # v*dv/dy at v points
+
+        v_rhs  = -dhdy -(self.f0 + self.beta*self.vy)*u_at_v
+        v_rhs += self.nu*self.del2(self._v)
+        v_rhs += - udvdx - vdvdy
+        v_rhs -= self.damping(self.v)
+
+        dstate = np.array([u_rhs, v_rhs, phi_rhs])
+
+        return dstate
+
+
+    def rhs(self):
+        """Apply a right hand side term to the u, v and h equations.
+        By default this is zero, can be overridden in subclasses."""
+        return 0.0
+
+    def _dynamics(self):
+        return self.dynamics() +  self.rhs()
+
+    def step(self):
+        dt, tc = self.dt, self.tc
+
+        self._apply_boundary_conditions()
+        for (field, stepper) in self._tracers.values():
+            self._apply_boundary_conditions_to(field)
+            field[1:-1, 1:-1] = field[1:-1, 1:-1] + next(stepper)
+
+        newstate = self.state + next(self._stepper)
+        self.state = newstate
+
+
+        self.t  += dt
+        self.tc += 1
+
+
+class AdvectiveTracers:
+    """A Mixin to provide tracers that can be advected on the C-grid."""
     def add_tracer(self, name, initial_state, rhs=0, kappa=0.0, apply_damping=True):
         """Add a tracer to the shallow water model.
 
@@ -118,81 +175,8 @@ class NonLinShallowWater(ArakawaCGrid):
         return self.diffx(q_at_u * self.u) - self.diffy(q_at_v * self.v)  # (nx, ny)
 
 
-    def damping(self, var):
-        # sponges are active at the top and bottom of the domain by applying Rayleigh friction
-        # with exponential decay towards the centre of the domain
-        var_sponge = np.zeros_like(var)
-        var_sponge[:, :self.sponge_ny] = self.sponge[np.newaxis, :]
-        var_sponge[:, -self.sponge_ny:] = self.sponge[::-1][np.newaxis, :]
-        return self.r*var_sponge*var
-
-
-    def rhs(self):
-        """Calculate the right hand side of the u, v and h equations."""
-
-        u_at_v, v_at_u = self.uvatuv()   # (nx, ny+1), (nx+1, ny)
-        ubarx = self.x_average(self._u)[:, 1:-1]    # u averaged to v lons
-        ubary = self.y_average(self._u)[1:-1, :]    # u averaged to v lats
-
-        vbary = self.y_average(self._v)[1:-1, :]
-        vbarx = self.x_average(self._v)[:, 1:-1]
-
-
-        # the height equation
-        phi_at_u = self.x_average(self._phi)[:, 1:-1]  # (nx+1, ny)
-        phi_at_v = self.y_average(self._phi)[1:-1, :]  # (nx, ny+1)
-
-        phi_rhs  = - self.diffx(phi_at_u * self.u) - self.diffy(phi_at_v * self.v)  # (nx, ny)
-        phi_rhs += self.nu*self.del2(self._phi)  # diffusion
-        #phi_rhs -= self.damping(self.phi)        # damping at top and bottom boundaries
-
-
-        # the u equation
-        dhdx = self.diffx(self._phi)[:, 1:-1]  # (nx+2, ny)
-        ududx = 0.5*self.diffx(ubarx**2)            # u*du/dx at u points
-        vdudy = v_at_u*self.diffy(ubary)            # v*du/dy at u points
-
-        u_rhs  = -dhdx + (self.f0 + self.beta*self.uy)*v_at_u
-        u_rhs += self.nu*self.del2(self._u)
-        u_rhs += - ududx - vdudy               # nonlin u advection terms
-        u_rhs -= self.damping(self.u)
-
-
-        # the v equation
-        dhdy  = self.diffy(self._phi)[1:-1, :]
-        udvdx = u_at_v*self.diffx(vbarx)
-        vdvdy = 0.5*self.diffy(vbary**2)            # v*dv/dy at v points
-
-        v_rhs  = -dhdy -(self.f0 + self.beta*self.vy)*u_at_v
-        v_rhs += self.nu*self.del2(self._v)
-        v_rhs += - udvdx - vdvdy
-        v_rhs -= self.damping(self.v)
-
-        dstate = np.array([u_rhs, v_rhs, phi_rhs])
-
-        for fn in self._forcings:
-            dstate += fn(self)
-
-        return dstate
-
-    def step(self):
-        dt, tc = self.dt, self.tc
-
-        self._apply_boundary_conditions()
-        for (field, stepper) in self._tracers.values():
-            self._apply_boundary_conditions_to(field)
-            field[1:-1, 1:-1] = field[1:-1, 1:-1] + next(stepper)
-
-
-        newstate = self.state + next(self._stepper)
-        self.state = newstate
-
-
-        self.t  += dt
-        self.tc += 1
-
-class PeriodicShallowWater(PeriodicBoundaries, NonLinShallowWater): pass
-class WalledShallowWater(WallBoundaries, NonLinShallowWater): pass
+class PeriodicShallowWater(PeriodicBoundaries, AdvectiveTracers, NonLinShallowWater): pass
+class WalledShallowWater(WallBoundaries, AdvectiveTracers, NonLinShallowWater): pass
 
 
 
@@ -209,7 +193,16 @@ if __name__ == '__main__':
     dt = 3000.0
     phi0 = 10.0
 
-    ocean = WalledShallowWater(nx, ny, Lx, Ly, beta=beta, f0=0.0, dt=dt, nu=1.0e3)
+    class ShallowWater(PeriodicShallowWater):
+        def rhs(self):
+            dstate = np.zeros_like(self.state)
+            q = self.tracer('q')
+            gamma = 1e-6
+            #dstate[2] = gamma*q
+            return dstate
+
+
+    ocean = ShallowWater(nx, ny, Lx, Ly, beta=beta, f0=0.0, dt=dt, nu=1.0e3)
 
     d = 25
     hump = (np.sin(np.linspace(0, np.pi, 2*d))**2)[np.newaxis, :] * (np.sin(np.linspace(0, np.pi, 2*d))**2)[:, np.newaxis]
@@ -232,14 +225,12 @@ if __name__ == '__main__':
 
     ocean.add_tracer('q', q, q_rhs)
 
-    @ocean.add_forcing
     def force_geopot(model):
         dstate = np.zeros_like(model.state)
         q = model.tracer('q')
         gamma = 1e-6
         #dstate[2] = gamma*q
         return dstate
-
 
     plt.ion()
 

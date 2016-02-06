@@ -34,6 +34,8 @@ class ArakawaCGrid(object):
         self.phix = self.vx
         self.phiy = self.uy
 
+        self._tracers  = {}  # support for tracer mixins
+
     # define u, v and h properties to return state without the boundaries
     @property
     def u(self):
@@ -141,15 +143,15 @@ class ArakawaCGrid(object):
         field[0, -1] = 0.5*(field[1, -1] + field[0, -2])
         field[-1, -1] = 0.5*(field[-1, -2] + field[-2, -1])
 
-    def _apply_boundary_conditions(self):
-        """Set the boundary values of the u v and phi fields.
-        This should be implemented by a subclass."""
-        raise NotImplemented
+    # def _apply_boundary_conditions(self):
+    #     """Set the boundary values of the u v and phi fields.
+    #     This should be implemented by a subclass."""
+    #     raise NotImplemented
 
-    def _apply_boundary_conditions_to(self, field):
-        """Set the boundary values of a given field.
-        This should be implemented by a subclass."""
-        raise NotImplemented
+    # def _apply_boundary_conditions_to(self, field):
+    #     """Set the boundary values of a given field.
+    #     This should be implemented by a subclass."""
+    #     raise NotImplemented
 
 
 

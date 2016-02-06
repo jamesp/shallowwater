@@ -27,7 +27,7 @@ from timesteppers import adamsbashforthgen
 
 
 class LinearShallowWater(ArakawaCGrid):
-    def __init__(self, nx, ny, Lx=1.0e7, Ly=1.0e7, f0=0.0, beta=2.0e-11, g=9.8, H=10.0, nu=1.0e-5, r=1.0e-5, dt=1000.0):
+    def __init__(self, nx, ny, Lx=1.0e7, Ly=1.0e7, f0=0.0, beta=0.0, g=9.8, H=10.0, nu=1.0e3, r=1.0e-5, dt=1000.0):
         super(LinearShallowWater, self).__init__(nx, ny, Lx, Ly)
 
         # Coriolis terms
@@ -52,6 +52,9 @@ class LinearShallowWater(ArakawaCGrid):
 
         self._forcings = []
         self._tracers  = {}
+
+        self.hx = self.phix
+        self.hy = self.phiy
 
     @property
     def h(self):
@@ -116,6 +119,11 @@ class LinearShallowWater(ArakawaCGrid):
     def step(self):
         dt, tc = self.dt, self.tc
 
+        self._apply_boundary_conditions()
+        for (field, stepper) in self._tracers.values():
+            self._apply_boundary_conditions_to(field)
+            field[1:-1, 1:-1] = field[1:-1, 1:-1] + next(stepper)
+
         newstate = self.state + next(self._stepper)
         self.state = newstate
 
@@ -154,6 +162,7 @@ if __name__ == '__main__':
     for i in range(10000):
         ocean.step()
         if i % 10 == 0:
+            print('[t={:7.2f} h range [{:.2f}, {:.2f}]'.format(ocean.t/86400, ocean.h.min(), ocean.h.max()))
             plt.figure(1)
             plt.clf()
             #plt.plot(ocean.h[:,0])
