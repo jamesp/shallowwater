@@ -34,8 +34,6 @@ class ArakawaCGrid(object):
         self.phix = self.vx
         self.phiy = self.uy
 
-        self._tracers  = {}  # support for tracer mixins
-
     # define u, v and h properties to return state without the boundaries
     @property
     def u(self):

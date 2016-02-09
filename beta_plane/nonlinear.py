@@ -42,6 +42,7 @@ class NonLinShallowWater(ArakawaCGrid):
         self.t = 0.0
 
         self._stepper = adamsbashforthgen(self._dynamics, self.dt)
+        self._tracers = {}
 
     def damping(self, var):
         # sponges are active at the top and bottom of the domain by applying Rayleigh friction
@@ -106,23 +107,7 @@ class NonLinShallowWater(ArakawaCGrid):
     def _dynamics(self):
         return self.dynamics() +  self.rhs()
 
-    def step(self):
-        dt, tc = self.dt, self.tc
 
-        self._apply_boundary_conditions()
-        for (field, stepper) in self._tracers.values():
-            self._apply_boundary_conditions_to(field)
-            field[1:-1, 1:-1] = field[1:-1, 1:-1] + next(stepper)
-
-        newstate = self.state + next(self._stepper)
-        self.state = newstate
-
-
-        self.t  += dt
-        self.tc += 1
-
-
-    # tracers
     def add_tracer(self, name, initial_state, rhs=0, kappa=0.0, apply_damping=True):
         """Add a tracer to the shallow water model.
 
@@ -141,7 +126,7 @@ class NonLinShallowWater(ArakawaCGrid):
         state[1:-1, 1:-1] = initial_state
 
         def _rhs():
-            orhs = -self.tracer_conservation(name)
+            orhs = -self._tracer_dynamics_terms(name)
             if kappa:
                 orhs += kappa*self.del2(state)
             if apply_damping:
@@ -158,7 +143,7 @@ class NonLinShallowWater(ArakawaCGrid):
     def tracer(self, name):
         return self._tracers[name][0][1:-1, 1:-1]
 
-    def tracer_conservation(self, name):
+    def _tracer_dynamics_terms(self, name):
         """Calculates the conservation of an advected tracer.
 
         ∂[q]/∂t + ∇ . (uq) = 0
@@ -173,6 +158,20 @@ class NonLinShallowWater(ArakawaCGrid):
 
         return self.diffx(q_at_u * self.u) - self.diffy(q_at_v * self.v)  # (nx, ny)
 
+    def step(self):
+        dt, tc = self.dt, self.tc
+
+        self._apply_boundary_conditions()
+        for (field, stepper) in self._tracers.values():
+            self._apply_boundary_conditions_to(field)
+            field[1:-1, 1:-1] = field[1:-1, 1:-1] + next(stepper)
+
+        newstate = self.state + next(self._stepper)
+        self.state = newstate
+
+
+        self.t  += dt
+        self.tc += 1
 
 class PeriodicShallowWater(PeriodicBoundaries, NonLinShallowWater): pass
 class WalledShallowWater(WallBoundaries, NonLinShallowWater): pass
