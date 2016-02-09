@@ -122,8 +122,7 @@ class NonLinShallowWater(ArakawaCGrid):
         self.tc += 1
 
 
-class AdvectiveTracers:
-    """A Mixin to provide tracers that can be advected on the C-grid."""
+    # tracers
     def add_tracer(self, name, initial_state, rhs=0, kappa=0.0, apply_damping=True):
         """Add a tracer to the shallow water model.
 
@@ -175,8 +174,8 @@ class AdvectiveTracers:
         return self.diffx(q_at_u * self.u) - self.diffy(q_at_v * self.v)  # (nx, ny)
 
 
-class PeriodicShallowWater(PeriodicBoundaries, AdvectiveTracers, NonLinShallowWater): pass
-class WalledShallowWater(WallBoundaries, AdvectiveTracers, NonLinShallowWater): pass
+class PeriodicShallowWater(PeriodicBoundaries, NonLinShallowWater): pass
+class WalledShallowWater(WallBoundaries, NonLinShallowWater): pass
 
 
 
@@ -306,4 +305,3 @@ if __name__ == '__main__':
 
             plt.pause(0.01)
             plt.draw()
-
