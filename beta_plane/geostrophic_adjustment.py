@@ -1,15 +1,16 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-from linear import LinearShallowWater, WalledBoundaries
+from linear import LinearShallowWater, PeriodicBoundaries
 
-class Shallow(WalledBoundaries, LinearShallowWater): pass
+class ShallowWater(LinearShallowWater, PeriodicBoundaries): pass
 
 nx = 128
 ny = 129
 Lx = 1.5e7
 Ly = 1.5e7
-beta = 2.28e-11
+f0 = 4e-5
+beta = 0.0
 phi0 = 100.0
 g = 10.0
 c = 30.0            # Kelvin wave speed c = sqrt(gH)
@@ -32,11 +33,16 @@ def iplot(fignum=1):
     plt.pause(0.001)
     plt.draw()
 
+sw = ShallowWater(nx, ny, Lx, Ly, beta=beta, f0=f0, g=g, H=H, nu=nu, dt=dt)
+
+d = 20
+hump = (np.sin(np.arange(0, np.pi, np.pi/(2*d)))**2)[np.newaxis, :] * (np.sin(np.arange(0, np.pi, np.pi/(2*d)))**2)[:, np.newaxis]
+
+sw.h[nx//2:nx//2+2*d, ny//2-d:ny//2+d] = hump*1.0
 
 
-class ShallowWater(LinearShallowWater, PeriodicBoundaries, AdvectiveTracers): pass
 
-sw = ShallowWater(nx, ny, Lx, Ly, beta=beta, g=g, H=H, nu=nu, dt=dt)
+
 
 plt.figure(1, figsize=(8,8))
 for i in range(10000):
@@ -45,12 +51,8 @@ for i in range(10000):
         with iplot(1):
             plt.subplot(221)
             plt.imshow(sw.h.T, cmap=plt.cm.RdBu_r)
-            plt.clim(-.2, .2)
+            plt.clim(-.5, .5)
             plt.title('h')
-
-            plt.subplot(222)
-            plt.imshow(sw.tracer('q').T, cmap=plt.cm.RdBu_r)
-            plt.title('q')
 
             plt.subplot(223)
             div = sw.divergence()
