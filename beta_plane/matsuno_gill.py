@@ -10,7 +10,7 @@ nx = 128
 ny = 129
 
 
-# Radius of deformation: Rd = sqrt(2 c / β)
+# Radius of deformation: Rd = sqrt(2 c / beta)
 Rd = 1000.0e3  # Fix Rd at 1000km
 
 Lx = 20*Rd
@@ -102,4 +102,3 @@ for i in range(100000):
         plt.xlim(-Lx/Rd/2, Lx/Rd/2)
         plt.pause(0.01)
         plt.draw()
-

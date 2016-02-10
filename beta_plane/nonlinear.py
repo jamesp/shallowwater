@@ -18,7 +18,7 @@ f = f0 + βy
 
 import numpy as np
 
-from arakawac import ArakawaCGrid
+from arakawac import ArakawaCGrid, PeriodicBoundaries, WallBoundaries
 from timesteppers import adamsbashforthgen
 
 
@@ -41,82 +41,8 @@ class NonLinShallowWater(ArakawaCGrid):
         self.tc = 0  # number of timesteps taken
         self.t = 0.0
 
-        self._stepper = adamsbashforthgen(self.rhs, self.dt)
-
-        self._forcings = []
-        self._tracers  = {}
-
-
-
-    def add_forcing(self, fn):
-        """Add a forcing term to the model.  Typically used as a decorator:
-
-            sw = PeriodicShallowWater(nx, ny)
-
-            @sw.add_forcing
-            def dissipate(swmodel):
-                dstate = np.zeros_like(swmodel.state)
-                dstate[:] = -swmodel.state*0.001
-                return dstate
-
-        Forcing functions should take a single argument for the model object itself,
-        and return a state delta the same shape as state.
-        """
-        self._forcings.append(fn)
-        return fn
-
-
-
-    def add_tracer(self, name, initial_state, rhs=0, kappa=0.0, apply_damping=True):
-        """Add a tracer to the shallow water model.
-
-        Dq/Dt + q(∇ . u) = k∆q + rhs
-
-        Tracers are advected by the flow.  `rhs` can be a constant
-        or a function that takes the shallow water object as a single argument.
-
-        `kappa` is a coefficient of dissipation.
-
-        Once a tracer has been added to the model it's value can be accessed
-        by the `tracer(name)` method.
-        """
-
-        state = np.zeros_like(self._phi)  # tracer values held at cell centres
-        state[1:-1, 1:-1] = initial_state
-
-        def _rhs():
-            orhs = -self.tracer_conservation(name)
-            if kappa:
-                orhs += kappa*self.del2(state)
-            if apply_damping:
-                orhs += -self.damping(state[1:-1, 1:-1])
-            if callable(rhs):
-                orhs += rhs(self)
-            else:
-                orhs += rhs
-            return orhs
-
-        stepper = adamsbashforthgen(_rhs, self.dt)
-        self._tracers[name] = (state, stepper)
-
-    def tracer(self, name):
-        return self._tracers[name][0][1:-1, 1:-1]
-
-    def tracer_conservation(self, name):
-        """Calculates the conservation of an advected tracer.
-
-        ∂[q]/∂t + ∇ . (uq) = 0
-
-        Returns the divergence term i.e. ∇.(uq)
-        """
-        q = self._tracers[name][0]
-
-        # the height equation
-        q_at_u = self.x_average(q)[:, 1:-1]  # (nx+1, ny)
-        q_at_v = self.y_average(q)[1:-1, :]  # (nx, ny+1)
-
-        return self.diffx(q_at_u * self.u) - self.diffy(q_at_v * self.v)  # (nx, ny)
-
+        self._stepper = adamsbashforthgen(self._dynamics, self.dt)
+        self._tracers = {}
 
     def damping(self, var):
         # sponges are active at the top and bottom of the domain by applying Rayleigh friction
@@ -127,8 +53,8 @@ class NonLinShallowWater(ArakawaCGrid):
         return self.r*var_sponge*var
 
 
-    def rhs(self):
-        """Calculate the right hand side of the u, v and h equations."""
+    def dynamics(self):
+        """Calculate the dynamics for the u, v and phi equations."""
 
         u_at_v, v_at_u = self.uvatuv()   # (nx, ny+1), (nx+1, ny)
         ubarx = self.x_average(self._u)[:, 1:-1]    # u averaged to v lons
@@ -170,10 +96,67 @@ class NonLinShallowWater(ArakawaCGrid):
 
         dstate = np.array([u_rhs, v_rhs, phi_rhs])
 
-        for fn in self._forcings:
-            dstate += fn(self)
-
         return dstate
+
+
+    def rhs(self):
+        """Apply a right hand side term to the u, v and h equations.
+        By default this is zero, can be overridden in subclasses."""
+        return 0.0
+
+    def _dynamics(self):
+        return self.dynamics() +  self.rhs()
+
+
+    def add_tracer(self, name, initial_state, rhs=0, kappa=0.0, apply_damping=True):
+        """Add a tracer to the shallow water model.
+
+        Dq/Dt + q(∇ . u) = k∆q + rhs
+
+        Tracers are advected by the flow.  `rhs` can be a constant
+        or a function that takes the shallow water object as a single argument.
+
+        `kappa` is a coefficient of dissipation.
+
+        Once a tracer has been added to the model it's value can be accessed
+        by the `tracer(name)` method.
+        """
+
+        state = np.zeros_like(self._phi)  # tracer values held at cell centres
+        state[1:-1, 1:-1] = initial_state
+
+        def _rhs():
+            orhs = -self._tracer_dynamics_terms(name)
+            if kappa:
+                orhs += kappa*self.del2(state)
+            if apply_damping:
+                orhs += -self.damping(state[1:-1, 1:-1])
+            if callable(rhs):
+                orhs += rhs(self)
+            else:
+                orhs += rhs
+            return orhs
+
+        stepper = adamsbashforthgen(_rhs, self.dt)
+        self._tracers[name] = (state, stepper)
+
+    def tracer(self, name):
+        return self._tracers[name][0][1:-1, 1:-1]
+
+    def _tracer_dynamics_terms(self, name):
+        """Calculates the conservation of an advected tracer.
+
+        ∂[q]/∂t + ∇ . (uq) = 0
+
+        Returns the divergence term i.e. ∇.(uq)
+        """
+        q = self._tracers[name][0]
+
+        # the height equation
+        q_at_u = self.x_average(q)[:, 1:-1]  # (nx+1, ny)
+        q_at_v = self.y_average(q)[1:-1, :]  # (nx, ny+1)
+
+        return self.diffx(q_at_u * self.u) - self.diffy(q_at_v * self.v)  # (nx, ny)
 
     def step(self):
         dt, tc = self.dt, self.tc
@@ -181,92 +164,22 @@ class NonLinShallowWater(ArakawaCGrid):
         self._apply_boundary_conditions()
         for (field, stepper) in self._tracers.values():
             self._apply_boundary_conditions_to(field)
-
-        newstate = self.state + next(self._stepper)
-        for (field, stepper) in self._tracers.values():
             field[1:-1, 1:-1] = field[1:-1, 1:-1] + next(stepper)
 
-        self.state = newstate
+        newstate = self.state + next(self._stepper)
 
+        self.state = newstate
 
         self.t  += dt
         self.tc += 1
 
-class PeriodicShallowWater(NonLinShallowWater):
-    """Shallow Water equations periodic in the x-direction."""
-    def __init__(self, nx, ny, Lx=1.0e7, Ly=1.0e7, f0=0, beta=2.0e-11, nu=1.0e-5, r=1.0e-5, dt=1000.0):
-        super(PeriodicShallowWater, self).__init__(nx, ny, Lx, Ly, f0, beta, nu, r, dt)
-
-    def _apply_boundary_conditions(self):
-        # left and right-hand boundaries are the same for u
-        self._u[0, :] = self._u[-3, :]
-        self._u[1, :] = self._u[-2, :]
-        self._u[-1, :] = self._u[2, :]
-
-        self._v[0, :] = self._v[-2, :]
-        self._v[-1, :] = self._v[1, :]
-        self._phi[0, :] = self._phi[-2, :]
-        self._phi[-1, :] = self._phi[1, :]
-
-        fields = self._u, self._v, self._phi
-        # top and bottom boundaries: zero deriv and damping
-        for field in fields:
-            field[:, 0] = field[:, 1]
-            field[:, -1] = field[:, -2]
-            self._fix_boundary_corners(field)
-
-    def _apply_boundary_conditions_to(self, field):
-        # periodic boundary in the x-direction
-        field[0, :] = field[-2, :]
-        field[-1, :] = field[1, :]
-
-        # top and bottom boundaries: zero deriv and damping
-        field[:, 0] = field[:, 1]
-        field[:, -1] = field[:, -2]
-
-        self._fix_boundary_corners(field)
-
-class WalledShallowWater(NonLinShallowWater):
-    """Shallow Water with solid boundaries at x=0, x=Lx."""
-    def __init__(self, nx, ny, Lx=1.0e7, Ly=1.0e7, f0=0, beta=2.0e-11, nu=1.0e-5, r=1.0e-5, dt=1000.0):
-        super(WalledShallowWater, self).__init__(nx, ny, Lx, Ly, f0, beta, nu, r, dt)
-
-    def _apply_boundary_conditions(self):
-        # No flow through the boundary at x=0
-        self._u[0, :] = 0
-        self._u[1, :] = 0
-        self._u[-1, :] = 0
-        self._u[-2, :] = 0
-
-        # free-slip of other variables: zero-derivative
-        self._v[0, :] = self._v[1, :]
-        self._v[-1, :] = self._v[-2, :]
-        self._phi[0, :] = self._phi[1, :]
-        self._phi[-1, :] = self._phi[-2, :]
-
-        fields = self._u, self._v, self._phi
-        # top and bottom boundaries: zero deriv
-        for field in fields:
-            field[:, 0] = field[:, 1]
-            field[:, -1] = field[:, -2]
-            self._fix_boundary_corners(field)
-
-    def _apply_boundary_conditions_to(self, field):
-        # free slip on left and right boundares: zero derivative
-        field[0, :] = field[1, :]
-        field[-1, :] = field[-2, :]
-
-        # top and bottom boundaries: zero deriv and damping
-        field[:, 0] = field[:, 1]
-        field[:, -1] = field[:, -2]
-
-        self._fix_boundary_corners(field)
+class PeriodicShallowWater(PeriodicBoundaries, NonLinShallowWater): pass
+class WalledShallowWater(WallBoundaries, NonLinShallowWater): pass
 
 
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
-    import scipy.signal
     from spectral_analysis import background, kiladis_spectra
 
     nx = 128
@@ -278,7 +191,16 @@ if __name__ == '__main__':
     dt = 3000.0
     phi0 = 10.0
 
-    ocean = PeriodicShallowWater(nx, ny, Lx, Ly, beta=beta, f0=0.0, dt=dt, nu=1.0e3)
+    class ShallowWater(PeriodicShallowWater):
+        def rhs(self):
+            dstate = np.zeros_like(self.state)
+            q = self.tracer('q')
+            gamma = 1e-6
+            #dstate[2] = gamma*q
+            return dstate
+
+
+    ocean = ShallowWater(nx, ny, Lx, Ly, beta=beta, f0=0.0, dt=dt, nu=1.0e3)
 
     d = 25
     hump = (np.sin(np.linspace(0, np.pi, 2*d))**2)[np.newaxis, :] * (np.sin(np.linspace(0, np.pi, 2*d))**2)[:, np.newaxis]
@@ -301,14 +223,12 @@ if __name__ == '__main__':
 
     ocean.add_tracer('q', q, q_rhs)
 
-    @ocean.add_forcing
     def force_geopot(model):
         dstate = np.zeros_like(model.state)
         q = model.tracer('q')
         gamma = 1e-6
         #dstate[2] = gamma*q
         return dstate
-
 
     plt.ion()
 
@@ -384,4 +304,3 @@ if __name__ == '__main__':
 
             plt.pause(0.01)
             plt.draw()
-

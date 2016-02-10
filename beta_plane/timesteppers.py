@@ -1,5 +1,5 @@
-
 def adamsbashforthgen(rhs_fn, dt):
+    """Returns an adams-bashforth three-step timestepping generator."""
     dx, pdx, ppdx = 0, 0, 0
     dt1, dt2, dt3 = 0, 0, 0
 
