@@ -156,7 +156,7 @@ class NonLinShallowWater(ArakawaCGrid):
         q_at_u = self.x_average(q)[:, 1:-1]  # (nx+1, ny)
         q_at_v = self.y_average(q)[1:-1, :]  # (nx, ny+1)
 
-        return self.diffx(q_at_u * self.u) - self.diffy(q_at_v * self.v)  # (nx, ny)
+        return self.diffx(q_at_u * self.u) + self.diffy(q_at_v * self.v)  # (nx, ny)
 
     def step(self):
         dt, tc = self.dt, self.tc
