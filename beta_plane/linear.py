@@ -24,7 +24,7 @@ from timesteppers import adamsbashforthgen
 
 
 class LinearShallowWater(ArakawaCGrid):
-    def __init__(self, nx, ny, Lx=1.0e7, Ly=1.0e7, f0=0.0, beta=0.0, g=9.8, H=10.0, nu=1.0e3, r=1.0e-5, dt=1000.0):
+    def __init__(self, nx, ny, Lx=1.0e7, Ly=1.0e7, f0=0.0, beta=0.0, g=9.8, H=10.0, nu=1.0e3, nu_h=None, r=1.0e-5, dt=1000.0):
         super(LinearShallowWater, self).__init__(nx, ny, Lx, Ly)
 
         # Coriolis terms
@@ -35,7 +35,8 @@ class LinearShallowWater(ArakawaCGrid):
         self.H = H
 
         # dissipation and friction
-        self.nu = nu
+        self.nu = nu                                    # u, v dissipation
+        self.nu_h = nu if nu_h is None else nu_h        # h dissipation
         self.r = r
         self.sponge_ny = ny//7
         self.sponge = np.exp(-np.linspace(0, 5, self.sponge_ny))
@@ -94,7 +95,7 @@ class LinearShallowWater(ArakawaCGrid):
         uu, vv = self.uvatuv()
 
         # the height equation
-        h_rhs = -H*self.divergence() + nu*self.del2(self._h) - self.damping(self.h)
+        h_rhs = -H*self.divergence() + self.nu_h*self.del2(self._h) - self.damping(self.h)
 
         # the u equation
         dhdx = self.diffx(self._h)[:, 1:-1]
@@ -176,9 +177,15 @@ class LinearShallowWater(ArakawaCGrid):
         self._apply_boundary_conditions()
         for (field, stepper) in self._tracers.values():
             self._apply_boundary_conditions_to(field)
-            field[1:-1, 1:-1] = field[1:-1, 1:-1] + next(stepper)
+
 
         newstate = self.state + next(self._stepper)
+        newfields = []
+        for (field, stepper) in self._tracers.values():
+            newfields.append(field[1:-1, 1:-1] + next(stepper))
+
+        for (field, stepper), nfield in zip(self._tracers.values(), newfields):
+            field[1:-1, 1:-1] = nfield
         self.state = newstate
 
         self.t  += dt
