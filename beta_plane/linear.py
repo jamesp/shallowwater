@@ -156,6 +156,9 @@ class LinearShallowWater(ArakawaCGrid):
     def tracer(self, name):
         return self._tracers[name][0][1:-1, 1:-1]
 
+    def _tracer(self, name):
+        return self._tracers[name][0]
+
     def _tracer_dynamics_terms(self, name):
         """Calculates the conservation of an advected tracer.
 
