@@ -17,6 +17,8 @@
 f = f0 + βy
 """
 
+from contextlib import contextmanager
+
 import numpy as np
 
 from arakawac import ArakawaCGrid, PeriodicBoundaries, WallBoundaries
@@ -113,9 +115,9 @@ class LinearShallowWater(ArakawaCGrid, AdamsBashforth3):
         self.H = H
 
         # dissipation and friction
-        self.nu = nu                                    # u, v dissipation
-        self.nu_h = nu if nu_h is None else nu_h        # h dissipation
-        self.r = r
+        self.nu = nu                                    # u, v diffusion
+        self.nu_h = nu if nu_h is None else nu_h        # h diffusion
+        self.r = r                                      # u, v h Rayleigh damping at north/south boundaries
         self.sponge_ny = ny//7
         self.sponge = np.exp(-np.linspace(0, 5, self.sponge_ny))
 
@@ -165,27 +167,27 @@ class LinearShallowWater(ArakawaCGrid, AdamsBashforth3):
     def _dynamics_terms(self):
         """Calculate the dynamics of the u, v and h equations."""
         f0, beta, g, H, nu = self.f0, self.beta, self.g, self.H, self.nu
-
         uu, vv = self.uvatuv()
 
-        # the height equation
-        dh = -H*self.divergence() - self.damping(self.h)
-
-        # the u equation
+        # the u equation:       ∂u/∂t = fv - g.∂h/∂x
         dhdx = self.diffx(self._h)[:, 1:-1]
-        du = (f0 + beta*self.uy)*vv - g*dhdx  - self.damping(self.u)
+        du = (f0 + beta*self.uy)*vv - g*dhdx
 
-        # the v equation
+        # the v equation:       ∂v/∂t = -fu - g.∂h/∂y
         dhdy  = self.diffy(self._h)[1:-1, :]
-        dv = -(f0 + beta*self.vy)*uu - g*dhdy - self.damping(self.v)
+        dv = -(f0 + beta*self.vy)*uu - g*dhdy
 
-        dstate = np.array([du, dv, dh])
-        return dstate
+        # the height equation:  ∂h/∂t = -H(∂u/∂x + ∂v/∂y)
+        dh = -H*self.divergence()
+
+        return np.array([du, dv, dh])
 
     def _dissipation_terms(self):
-        du = self.nu*self.del2(self._u)
-        dv = self.nu*self.del2(self._v)
-        dh = self.nu_h*self.del2(self._h)
+        """Calculate dissipation and diffusive terms of the u,v and h equations."""
+        # ∂q/dt = k∆q + rq
+        du = self.nu*self.del2(self._u) - self.damping(self.u)
+        dv = self.nu*self.del2(self._v) - self.damping(self.v)
+        dh = self.nu_h*self.del2(self._h) - self.damping(self.h)
         return np.array([du, dv, dh])
 
     def rhs(self):
@@ -228,9 +230,46 @@ class LinearShallowWater(ArakawaCGrid, AdamsBashforth3):
             t.value = newfield
         self.state = newstate
 
+    def run(self, max_time, plot_every=None):
+        next_yield = max_time
+        if plot_every:
+            next_yield = self.t + plot_every
+        while self.t < max_time:
+            self.step()
+            if next_yield < self.t:
+                yield self
+                next_yield = next_yield + plot_every
+
 # examples of class composition
 class PeriodicLinearShallowWater(PeriodicBoundaries, LinearShallowWater): pass
 class WalledLinearShallowWater(WallBoundaries, LinearShallowWater): pass
+
+class RealtimeImshow:
+    def __init__(self, field, ax=None, cmap=None):
+        self.field = field
+        self.ax = ax
+        self.cmap = cmap
+
+    def create(self):
+        base = plt if self.ax is None else self.ax
+        self.plot = base.imshow(self.field, cmap=self.cmap)
+
+    def update(self):
+        self.plot.set_data(self.field)
+
+class RealtimeLine:
+    def __init__(self, data, ax=None, cmap=None):
+        self.data = data
+        self.ax = ax
+        self.cmap = cmap
+
+    def create(self):
+        base = plt if self.ax is None else self.ax
+        self.plot = base.plot(self.data)
+
+    def update(self):
+        self.plot.set_ydata(self.data)
+
 
 if __name__ == '__main__':
     nx = 128
@@ -238,12 +277,11 @@ if __name__ == '__main__':
     beta=2.0e-11
     Lx = 1.0e7
     Ly = 1.0e7
+    dt = 3000
 
-    ocean = PeriodicLinearShallowWater(nx, ny, Lx, Ly, beta=beta, f0=0.0, g=0.1, H=100.0, dt=3000, nu=1000.0)
+    ocean = PeriodicLinearShallowWater(nx, ny, Lx, Ly, beta=beta, f0=0.0, g=0.1, H=100.0, dt=dt, nu=1000.0)
 
     d = 25
-    #ocean.h[10:10+2*d, ny//2-d:ny//2+d] = (np.sin(np.linspace(0, np.pi, 2*d))**2)[np.newaxis, :] * (np.sin(np.linspace(0, np.pi, 2*d))**2)[:, np.newaxis]
-    #ocean.h[100:100+2*d, ny//2-d:ny//2+d] = (np.sin(np.linspace(0, np.pi, 2*d))**2)[np.newaxis, :] * (np.sin(np.linspace(0, np.pi, 2*d))**2)[:, np.newaxis]
     import matplotlib.pyplot as plt
 
     @ocean.add_forcing
@@ -264,31 +302,45 @@ if __name__ == '__main__':
 
     ts = []
     es = []
+
+    cmap = plt.cm.get_cmap('RdBu_r', 15)
+
+    fig = plt.figure(figsize=(12,12))
+
+    hplot = RealtimeImshow(ocean.h.T, ax=plt.subplot(221), cmap=cmap)
+    hplot.create()
+    hplot.plot.set_clim(-.5,.5)
+
+    plt.subplot(222)
+    line0, = plt.plot(ocean.h[:,0])
+    line1, = plt.plot(ocean.h[:,48])
+    line2, = plt.plot(ocean.h[:,64])
+    plt.ylim(-1,1)
+
+    plt.subplot(223)
+    energy = np.sum(ocean.g*ocean.h) + np.sum(ocean.u**2) + np.sum(ocean.v**2)
+    ts.append(ocean.t)
+    es.append(energy)
+    plt.plot(ts, es)
+
+
+    qplot = RealtimeImshow(ocean.q[:].T, ax=plt.subplot(224), cmap=cmap)
+    qplot.create()
+    #plt.colorbar(cax=ax)
+    qplot.plot.set_clim(3.9, 4.1)
+
     plt.show()
-    for i in range(10000):
-        ocean.step()
-        if i % 10 == 0:
-            print('[t={:7.2f} h range [{:.2f}, {:.2f}]'.format(ocean.t/86400, ocean.h.min(), ocean.h.max()))
-            plt.clf()
-            plt.subplot(221)
-            plt.contourf(ocean.h.T, cmap=plt.cm.RdBu, levels=colorlevels)
 
-            plt.subplot(222)
-            plt.plot(ocean.h[:,0])
-            plt.plot(ocean.h[:,48])
-            plt.plot(ocean.h[:,64])
-            plt.ylim(-1,1)
+    for s in ocean.run(dt*10000, plot_every=dt*10):
+        print('[t={:7.2f} h range [{:.2f}, {:.2f}]'.format(ocean.t/86400, ocean.h.min(), ocean.h.max()))
+        #hplot.set_data(ocean.h.T)
+        hplot.update()
+        qplot.update()
+        print(qplot.field.max())
 
-            plt.subplot(223)
-            energy = np.sum(ocean.g*ocean.h) + np.sum(ocean.u**2) + np.sum(ocean.v**2)
-            ts.append(ocean.t)
-            es.append(energy)
-            plt.plot(ts, es)
+        line0.set_ydata(ocean.h[:,0])
+        line1.set_ydata(ocean.h[:,48])
+        line2.set_ydata(ocean.h[:,64])
 
-            plt.subplot(224)
-            plt.imshow(ocean.q.value.T - 4.0, cmap=plt.cm.RdBu)
-            plt.clim(-.1, .1)
-            plt.colorbar()
-
-            plt.pause(0.01)
-            plt.draw()
+        plt.pause(0.01)
+        plt.draw()
