@@ -28,30 +28,29 @@ dt = np.floor(cfl * dx / (c*4))  # TODO check this calculation for c-grid
 print('dt', dt)
 
 gamma = 2.0e-4
-tau = dt*20.0
+tau = dt*15.0
 
-atmos = PeriodicShallowWater(nx, ny, Lx, Ly, beta=beta, f0=0.0, dt=dt, nu=5.0e4)
-atmos.phi[:] += phi0
 
+class MatsunoGill(PeriodicShallowWater):
+    def rhs(self):
+        phi = self.phi
+
+        # phi rhs
+        dphi = np.zeros_like(phi)
+
+        #  Fixed heating on equator
+        dphi[nx//2-d:nx//2+d, ny//2-d:ny//2+d] = -hump*gamma
+        #  Newtonian relaxation
+        dphi -= (phi - phi0)/tau
+
+        return np.array([[0], [0], dphi])
 
 # Add a lump of fluid with scale 2 Rd
 d = (Ly // Rd)
 hump = (np.sin(np.arange(0, np.pi, np.pi/(2*d)))**2)[np.newaxis, :] * (np.sin(np.arange(0, np.pi, np.pi/(2*d)))**2)[:, np.newaxis]
 
-@atmos.add_forcing
-def rhs(model):
-    phi = model.phi
-
-    # phi rhs
-    dphi = np.zeros_like(phi)
-
-    #  Fixed heating on equator
-    dphi[nx//2-d:nx//2+d, ny//2-d:ny//2+d] = -hump*gamma
-    #  Newtonian relaxation
-    dphi -= (phi - phi0)/tau
-
-    return np.array([[0], [0], dphi])
-
+atmos = MatsunoGill(nx, ny, Lx, Ly, beta=beta, f0=0.0, dt=dt, nu=5.0e4)
+atmos.phi[:] += phi0
 
 plt.ion()
 
@@ -59,7 +58,7 @@ num_levels = 24
 colorlevels = np.concatenate([np.linspace(-1, -.05, num_levels//2), np.linspace(.05, 1, num_levels//2)])
 
 plt.show()
-for i in range(100000):
+for i in range(2000):
 
 
     atmos.step()
@@ -72,7 +71,8 @@ for i in range(100000):
         plt.suptitle('State at T=%.2f days' % (atmos.t / 86400.0))
         plt.subplot(211)
         x, y = np.meshgrid(atmos.phix/Rd, atmos.phiy/Rd)
-        plt.contourf(x, y, atmos.phi.T, cmap=plt.cm.RdBu, levels=phi0+colorlevels*phi0*0.01)
+        rng = np.abs(atmos.phi - phi0).max()
+        plt.contourf(x, y, atmos.phi.T - phi0, cmap=plt.cm.RdBu, levels=colorlevels*rng)
         plot_wind_arrows(atmos, (x,y), narrows=(25,25), hide_below=0.01)
 
 
@@ -102,3 +102,18 @@ for i in range(100000):
         plt.xlim(-Lx/Rd/2, Lx/Rd/2)
         plt.pause(0.01)
         plt.draw()
+
+# plt.figure(figsize=(12, 12))
+# plt.title('Geopotential disturbance at T=%.2f days' % (atmos.t / 86400.0))
+# x, y = np.meshgrid(atmos.phix/Rd, atmos.phiy/Rd)
+# rng = np.abs(atmos.phi - phi0).max()
+# plt.contourf(x, y, atmos.phi.T - phi0, cmap=plt.cm.RdBu, levels=colorlevels*rng)
+# plot_wind_arrows(atmos, (x,y), narrows=(25,25), hide_below=0.01)
+# c = plt.Circle((0,0), 0.5, fill=False)
+# plt.gca().add_artist(c)
+# plt.text(0, 0.7, 'Heating')
+# plt.xlabel('x (multiples of Rd)')
+# plt.ylabel('y (multiples of Rd)')
+# plt.xlim(-Lx/Rd/2, Lx/Rd/2)
+# plt.ylim(-Ly/Rd/2, Ly/Rd/2)
+# plt.savefig('gill_pattern.pdf')
