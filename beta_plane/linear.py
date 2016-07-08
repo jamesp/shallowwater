@@ -23,20 +23,20 @@ from arakawac import ArakawaCGrid, PeriodicBoundaries, WallBoundaries
 from timesteppers import adamsbashforthgen
 
 
-class LinearShallowWater(ArakawaCGrid):
-    def __init__(self, nx, ny, Lx=1.0e7, Ly=1.0e7, f0=0.0, beta=0.0, g=9.8, H=10.0, nu=1.0e3, nu_h=None, r=1.0e-5, dt=1000.0):
-        super(LinearShallowWater, self).__init__(nx, ny, Lx, Ly)
+class ShallowWater(ArakawaCGrid):
+    """The Shallow Water Equations on the Arakawa-C grid."""
+    def __init__(self, nx, ny, Lx=1.0e7, Ly=1.0e7, f0=0.0,
+                    beta=0.0, nu=1.0e3, nu_phi=None,
+                    r=1.0e-5, dt=1000.0):
+        super(ShallowWater, self).__init__(nx, ny, Lx, Ly)
 
         # Coriolis terms
         self.f0 = f0
         self.beta = beta
 
-        self.g = g
-        self.H = H
-
         # dissipation and friction
         self.nu = nu                                    # u, v dissipation
-        self.nu_h = nu if nu_h is None else nu_h        # h dissipation
+        self.nu_phi = nu if nu_phi is None else nu_phi  # phi dissipation
         self.r = r
         self.sponge_ny = ny//7
         self.sponge = np.exp(-np.linspace(0, 5, self.sponge_ny))
@@ -50,18 +50,6 @@ class LinearShallowWater(ArakawaCGrid):
 
         self._forcings = []
         self._tracers  = {}
-
-        self.hx = self.phix
-        self.hy = self.phiy
-
-    # make h an proxy for phi
-    @property
-    def h(self):
-        return self.phi
-
-    @property
-    def _h(self):
-        return self._phi
 
     def add_forcing(self, fn):
         """Add a forcing term to the model.  Typically used as a decorator:
@@ -88,32 +76,53 @@ class LinearShallowWater(ArakawaCGrid):
         var_sponge[:, -self.sponge_ny:] = self.sponge[::-1][np.newaxis, :]
         return self.r*var_sponge*var
 
-    def _dynamics_terms(self):
-        """Calculate the dynamics of the u, v and h equations."""
-        f0, beta, g, H, nu = self.f0, self.beta, self.g, self.H, self.nu
-
-        uu, vv = self.uvatuv()
-
-        # the height equation
-        h_rhs = -H*self.divergence() + self.nu_h*self.del2(self._h) - self.damping(self.h)
-
-        # the u equation
-        dhdx = self.diffx(self._h)[:, 1:-1]
-        u_rhs = (f0 + beta*self.uy)*vv - g*dhdx + nu*self.del2(self._u) - self.damping(self.u)
-
-        # the v equation
-        dhdy  = self.diffy(self._h)[1:-1, :]
-        v_rhs = -(f0 + beta*self.vy)*uu - g*dhdy + nu*self.del2(self._v) - self.damping(self.v)
-
-        dstate = np.array([u_rhs, v_rhs, h_rhs])
-
-        return dstate
-
     def rhs(self):
         """Set a right-hand side term for the equation.
         Default is [0,0,0], override this method when subclassing."""
         zeros = np.zeros_like(self.state)
         return zeros
+
+    def _dynamics_terms(self):
+        """Calculate the dynamics for the u, v and phi equations."""
+        # ~~~ Nonlinear Dynamics ~~~
+        u_at_v, v_at_u = self.uvatuv()              # (nx, ny+1), (nx+1, ny)
+        ubarx = self.x_average(self._u)[:, 1:-1]    # u averaged to v lons
+        ubary = self.y_average(self._u)[1:-1, :]    # u averaged to v lats
+
+        vbary = self.y_average(self._v)[1:-1, :]
+        vbarx = self.x_average(self._v)[:, 1:-1]
+
+        # the height equation
+        phi_at_u = self.x_average(self._phi)[:, 1:-1]  # (nx+1, ny)
+        phi_at_v = self.y_average(self._phi)[1:-1, :]  # (nx, ny+1)
+
+        phi_rhs  = - self.diffx(phi_at_u * self.u) - self.diffy(phi_at_v * self.v)  # (nx, ny)
+        phi_rhs += self.nu_phi*self.del2(self._phi)       # diffusion
+        #phi_rhs -= self.damping(self.phi)               # damping at top and bottom boundaries
+
+        # the u equation
+        dhdx = self.diffx(self._phi)[:, 1:-1]       # (nx+2, ny)
+        ududx = 0.5*self.diffx(ubarx**2)            # u*du/dx at u points
+        vdudy = v_at_u*self.diffy(ubary)            # v*du/dy at u points
+
+        u_rhs  = -dhdx + (self.f0 + self.beta*self.uy)*v_at_u
+        u_rhs += self.nu*self.del2(self._u)
+        u_rhs += - ududx - vdudy               # nonlin u advection terms
+        u_rhs -= self.damping(self.u)
+
+        # the v equation
+        dhdy  = self.diffy(self._phi)[1:-1, :]
+        udvdx = u_at_v*self.diffx(vbarx)
+        vdvdy = 0.5*self.diffy(vbary**2)            # v*dv/dy at v points
+
+        v_rhs  = -dhdy -(self.f0 + self.beta*self.vy)*u_at_v
+        v_rhs += self.nu*self.del2(self._v)
+        v_rhs += - udvdx - vdvdy
+        v_rhs -= self.damping(self.v)
+
+        dstate = np.array([u_rhs, v_rhs, phi_rhs])
+
+        return dstate
 
     def _rhs(self):
         dstate = np.zeros_like(self.state)
@@ -168,7 +177,6 @@ class LinearShallowWater(ArakawaCGrid):
         """
         q = self._tracers[name][0]
 
-        # the height equation
         q_at_u = self.x_average(q)[:, 1:-1]  # (nx+1, ny)
         q_at_v = self.y_average(q)[1:-1, :]  # (nx, ny+1)
 
@@ -181,7 +189,6 @@ class LinearShallowWater(ArakawaCGrid):
         for (field, stepper) in self._tracers.values():
             self._apply_boundary_conditions_to(field)
 
-
         newstate = self.state + next(self._stepper)
         newfields = []
         for (field, stepper) in self._tracers.values():
@@ -189,12 +196,57 @@ class LinearShallowWater(ArakawaCGrid):
 
         for (field, stepper), nfield in zip(self._tracers.values(), newfields):
             field[1:-1, 1:-1] = nfield
+
         self.state = newstate
 
         self.t  += dt
         self.tc += 1
 
-# examples of class composition
+
+class LinearShallowWater(ShallowWater):
+    def __init__(self, nx, ny, Lx=1.0e7, Ly=1.0e7, f0=0.0, beta=0.0, g=9.8, H=10.0, nu=1.0e3, nu_phi=None, r=1.0e-5, dt=1000.0):
+        super(LinearShallowWater, self).__init__(nx, ny, Lx, Ly, f0, beta, nu, nu_phi, r, dt)
+
+        self.g = g
+        self.H = H
+
+        self.hx = self.phix
+        self.hy = self.phiy
+
+    # make h an proxy for phi
+    @property
+    def h(self):
+        return self.phi
+
+    @property
+    def _h(self):
+        return self._phi
+
+    def _dynamics_terms(self):
+        """Calculate the dynamics of the u, v and h equations."""
+        # ~~~ Linear dynamics ~~~
+        f0, beta, g, H, nu = self.f0, self.beta, self.g, self.H, self.nu
+
+        uu, vv = self.uvatuv()
+
+        # the height equation
+        h_rhs = -H*self.divergence() + self.nu_phi*self.del2(self._h) - self.damping(self.h)
+
+        # the u equation
+        dhdx = self.diffx(self._h)[:, 1:-1]
+        u_rhs = (f0 + beta*self.uy)*vv - g*dhdx + nu*self.del2(self._u) - self.damping(self.u)
+
+        # the v equation
+        dhdy  = self.diffy(self._h)[1:-1, :]
+        v_rhs = -(f0 + beta*self.vy)*uu - g*dhdy + nu*self.del2(self._v) - self.damping(self.v)
+
+        dstate = np.array([u_rhs, v_rhs, h_rhs])
+
+        return dstate
+
+
+class PeriodicShallowWater(PeriodicBoundaries, ShallowWater): pass
+class WalledShallowWater(WallBoundaries, ShallowWater): pass
 class PeriodicLinearShallowWater(PeriodicBoundaries, LinearShallowWater): pass
 class WalledLinearShallowWater(WallBoundaries, LinearShallowWater): pass
 
