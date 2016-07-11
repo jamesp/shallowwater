@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-from linear import PeriodicLinearShallowWater, WalledLinearShallowWater
+from shallowwater import PeriodicLinearShallowWater, WalledLinearShallowWater
 
 np.set_printoptions(precision=2, suppress=True)  # 2 dp and hide floating point error
 
