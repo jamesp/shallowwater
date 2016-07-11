@@ -20,7 +20,7 @@ f = f0 + βy
 import numpy as np
 
 from arakawac import ArakawaCGrid, PeriodicBoundaries, WallBoundaries
-from timesteppers import adamsbashforthgen
+from timesteppers import adamsbashforthgen, AdamsBashforth3
 
 
 class ShallowWater(ArakawaCGrid):
@@ -46,7 +46,7 @@ class ShallowWater(ArakawaCGrid):
         self.tc = 0  # number of timesteps taken
         self.t = 0.0
 
-        self._stepper = adamsbashforthgen(self._rhs, self.dt)
+        self._stepper = AdamsBashforth3(self._rhs, self.dt)
 
         self._forcings = []
         self._tracers  = {}
@@ -124,7 +124,7 @@ class ShallowWater(ArakawaCGrid):
 
         return dstate
 
-    def _rhs(self):
+    def _rhs(self, state, time):  # generic timesteppers expect function to take (state, time) args
         dstate = np.zeros_like(self.state)
         for f in self._forcings:
             dstate += f(self)
@@ -147,7 +147,7 @@ class ShallowWater(ArakawaCGrid):
         state = np.zeros_like(self._phi)  # tracer values held at cell centres
         state[1:-1, 1:-1] = initial_state
 
-        def _rhs():
+        def _rhs(_state, _time):
             orhs = -self._tracer_dynamics_terms(name)
             if kappa:
                 orhs += kappa*self.del2(state)
@@ -159,7 +159,7 @@ class ShallowWater(ArakawaCGrid):
                 orhs += rhs
             return orhs
 
-        stepper = adamsbashforthgen(_rhs, self.dt)
+        stepper = AdamsBashforth3(_rhs, self.dt)
         self._tracers[name] = (state, stepper)
 
     def tracer(self, name):
@@ -167,6 +167,11 @@ class ShallowWater(ArakawaCGrid):
 
     def _tracer(self, name):
         return self._tracers[name][0]
+
+    # allow tracers to be called as properties of the object
+    def __getattr__(self, name):
+        if name in self._tracers:
+            return self.tracer(name)
 
     def _tracer_dynamics_terms(self, name):
         """Calculates the conservation of an advected tracer.
@@ -189,10 +194,10 @@ class ShallowWater(ArakawaCGrid):
         for (field, stepper) in self._tracers.values():
             self._apply_boundary_conditions_to(field)
 
-        newstate = self.state + next(self._stepper)
+        newstate = self.state + self._stepper.step(self.state)
         newfields = []
         for (field, stepper) in self._tracers.values():
-            newfields.append(field[1:-1, 1:-1] + next(stepper))
+            newfields.append(field[1:-1, 1:-1] + stepper.step(field))
 
         for (field, stepper), nfield in zip(self._tracers.values(), newfields):
             field[1:-1, 1:-1] = nfield
@@ -268,6 +273,8 @@ if __name__ == '__main__':
     import matplotlib.pyplot as plt
 
     plt.ion()
+
+    ocean.add_tracer('q', 0.0)
 
     num_levels = 24
     colorlevels = np.concatenate([np.linspace(-1, -.05, num_levels//2), np.linspace(.05, 1, num_levels//2)])
