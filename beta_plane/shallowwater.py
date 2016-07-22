@@ -37,7 +37,7 @@ class ShallowWater(ArakawaCGrid, AdamsBashforth3):
         # dissipation and friction
         self.nu = nu                                    # u, v dissipation
         self.nu_phi = nu if nu_phi is None else nu_phi  # phi dissipation
-        self.r = r
+        self.r = r      # rayleigh damping at edges
         self.sponge_ny = ny//7
         self.sponge = np.exp(-np.linspace(0, 5, self.sponge_ny))
 
@@ -286,6 +286,9 @@ class ShallowWaterTracer(AdamsBashforth3):
 
     def __getattr__(self, attr):
         return getattr(self.state, attr)
+
+    def __getitem__(self, slice):
+        return self.state[slice]
 
 
 
