@@ -44,7 +44,7 @@ class ShallowWater(ArakawaCGrid, AdamsBashforth3):
         # timestepping
         self.dt = dt
 
-        self._forcings = []
+        self.forcings = []
         self.tracers  = {}
 
     def add_forcing(self, fn):
@@ -61,7 +61,7 @@ class ShallowWater(ArakawaCGrid, AdamsBashforth3):
         Forcing functions should take a single argument for the model object itself,
         and return a state delta the same shape as state.
         """
-        self._forcings.append(fn)
+        self.forcings.append(fn)
         return fn
 
     def damping(self, var):
@@ -122,11 +122,11 @@ class ShallowWater(ArakawaCGrid, AdamsBashforth3):
 
     def _rhs(self):
         dstate = np.zeros_like(self.state)
-        for f in self._forcings:
+        for f in self.forcings:
             dstate += f(self)
         return self._dynamics_terms() + self.rhs() + dstate
 
-    def add_tracer(self, name, initial_state=0.0, rhs=0, kappa=0.0, apply_damping=True):
+    def add_tracer(self, name, initial_state=0.0, rhs=0, kappa=0.0, damping=1.0):
         """Add a tracer to the shallow water model.
 
         Dq/Dt + q(∇ . u) = k∆q + rhs
@@ -139,9 +139,8 @@ class ShallowWater(ArakawaCGrid, AdamsBashforth3):
         Once a tracer has been added to the model it's value can be accessed
         by the `tracer(name)` method.
         """
-
         t = ShallowWaterTracer(name, grid=self, kappa=kappa,
-                            initial_state=initial_state, damping=apply_damping)
+                            initial_state=initial_state, damping=damping)
         self.tracers[name] = t
         return t
 
@@ -156,22 +155,20 @@ class ShallowWater(ArakawaCGrid, AdamsBashforth3):
     def step(self):  # override the basic timestepping `step` to support tracers
         dt, tc = self.dt, self.tc
 
-        self._apply_boundary_conditions()
-        # for (field, stepper) in self.tracers.values():
-        #     self._apply_boundary_conditions_to(field)
+        self.apply_boundary_conditions()
+        for tracer in self.tracers.values():
+            tracer.apply_boundary_conditions()
 
         newstate = self.state + self.dstate()
-        newfields = []
-        # for t in self.tracers.values():
-        #     newfields.append(field[1:-1, 1:-1] + stepper.step(field))
 
-        # for (field, stepper), nfield in zip(self.tracers.values(), newfields):
-        #     field[1:-1, 1:-1] = nfield
+        # calculate all tracer dstates before updating any of them
+        dstates = [t.dstate() for t in self.tracers.values()]
+        for tracer, dstate in zip(self.tracers.values(), dstates):
+            tracer.state = tracer.state + dstate
+            tracer._incr_timestep()
 
         self.state = newstate
-
-        self.t  += dt
-        self.tc += 1
+        self._incr_timestep()
 
 
 class LinearShallowWater(ShallowWater):
@@ -217,20 +214,28 @@ class LinearShallowWater(ShallowWater):
 
 
 class ShallowWaterTracer(AdamsBashforth3):
-    def __init__(self, name, grid, kappa=0.0, initial_state=0.0, damping=True):
+    def __init__(self, name, grid, kappa=0.0, initial_state=0.0, damping=0.0):
         self.name = name
         self.grid = grid
 
         self._state = np.zeros_like(grid._phi)  # store tracer on cell centres
-        self.state = self._state[1:-1, 1:-1]    # view without boundary conditions
-        self.state[:] = initial_state
+        self.state = initial_state
 
         self.kappa = kappa # diffusion
-        self.damping = 1 if damping else 0
+        self.damping = damping
 
         self.dt = grid.dt
 
-        self._forcings = []
+        self.forcings = []
+
+    @property
+    def state(self):
+        # view without boundary conditions
+        return self._state[1:-1, 1:-1]
+
+    @state.setter
+    def state(self, value):
+        self._state[1:-1, 1:-1] = value
 
     def _advection(self):
         """Calculates the conservation of the advected tracer by the fluid flow.
@@ -240,7 +245,7 @@ class ShallowWaterTracer(AdamsBashforth3):
         Returns the divergence term i.e. ∇.(uq)
         """
         grid = self.grid
-        q = self.state
+        q = self._state
 
         q_at_u = grid.x_average(q)[:, 1:-1]  # (nx+1, ny)
         q_at_v = grid.y_average(q)[1:-1, :]  # (nx, ny+1)
@@ -248,13 +253,13 @@ class ShallowWaterTracer(AdamsBashforth3):
         return grid.diffx(q_at_u * grid.u) + grid.diffy(q_at_v * grid.v)  # (nx, ny)
 
     def _diffusion(self):
-        return self.kappa*self.grid.del2(self._state) + self.damping*grid.damping(self.state)
+        return self.kappa*self.grid.del2(self._state) + self.damping*self.grid.damping(self.state)
 
     def _rhs(self):
         forcings = np.zeros_like(self.state)
-        for f in self._forcings:
+        for f in self.forcings:
             forcings += f(self)
-        return self.diffusion() - self._advection() + self.rhs() + forcings
+        return self._diffusion() - self._advection() + self.rhs() + forcings
 
     def rhs(self):
         """Set a right-hand side term for the equation.
@@ -268,14 +273,19 @@ class ShallowWaterTracer(AdamsBashforth3):
         Forcing functions should take a single argument for the tracer object itself,
         and return a state delta the same shape as state.
         """
-        self._forcings.append(fn)
+        self.forcings.append(fn)
         return fn
 
     def step(self):
-        self.grid._apply_boundary_conditions_to(self._state)
-        self.state[:] = self.state + self.dstate()
-        self.t = self.t + self.dt
-        self.tc = self.tc + 1
+        self.apply_boundary_conditions()
+        self.state = self.state + self.dstate()
+        self._incr_timestep()
+
+    def apply_boundary_conditions(self):
+        self.grid.apply_boundary_conditions_to(self._state)
+
+    def __getattr__(self, attr):
+        return getattr(self.state, attr)
 
 
 
@@ -286,7 +296,6 @@ class WalledLinearShallowWater(WallBoundaries, LinearShallowWater): pass
 
 
 if __name__ == '__main__':
-
     nx = 128
     ny = 129
     beta=2.0e-11
@@ -300,6 +309,16 @@ if __name__ == '__main__':
     ocean.h[10:10+2*d, ny//2-d:ny//2+d] = (np.sin(np.linspace(0, np.pi, 2*d))**2)[np.newaxis, :] * (np.sin(np.linspace(0, np.pi, 2*d))**2)[:, np.newaxis]
     #ocean.h[100:100+2*d, ny//2-d:ny//2+d] = (np.sin(np.linspace(0, np.pi, 2*d))**2)[np.newaxis, :] * (np.sin(np.linspace(0, np.pi, 2*d))**2)[:, np.newaxis]
     import matplotlib.pyplot as plt
+
+    ocean.add_tracer('q', initial_state=1.0, damping=0.0)
+
+    @ocean.add_forcing
+    def heating(model):
+        dstate = np.zeros_like(model.state)
+        dstate[2] = np.zeros_like(model.h)
+        dstate[2][10:10+2*d, ny//2-d:ny//2+d] = (np.sin(np.linspace(0, np.pi, 2*d))**2)[np.newaxis, :] * (np.sin(np.linspace(0, np.pi, 2*d))**2)[:, np.newaxis] * 1e-6
+        dstate[2] -= model.h / 1e7
+        return dstate
 
     plt.ion()
 
@@ -333,6 +352,14 @@ if __name__ == '__main__':
             ts.append(ocean.t)
             es.append(energy)
             plt.plot(ts, es)
+
+            plt.figure(4)
+            plt.clf()
+            #plt.plot(ocean.h[:,0])
+            #plt.plot(ocean.h[:,64])
+            #plt.ylim(-1,1)
+            plt.imshow(ocean.q.T, cmap=plt.cm.RdBu)
+            plt.colorbar()
 
             plt.pause(0.01)
             plt.draw()

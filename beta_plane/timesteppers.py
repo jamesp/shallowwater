@@ -7,6 +7,9 @@ class TimestepperMixin(object):
 
     def step(self):
         self.state[:] = self.state + self.dstate()
+        self._incr_timestep()
+
+    def _incr_timestep(self):
         self.t = self.t + self.dt
         self.tc = self.tc + 1
 
