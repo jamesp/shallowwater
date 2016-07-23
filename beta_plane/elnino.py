@@ -31,6 +31,9 @@ ny = 129
 Lx = 1.5e7
 Ly = 1.0e7
 
+def gauss(grid, cx, cy, sigma):
+    return np.exp(- (((grid.phix-cx)/grid.Lx)**2 + ((grid.phiy-cy)/grid.Ly)**2) / sigma )
+
 # Equatorial Beta-Plane
 f0 = 0.0        # /s
 beta = 2.0e-11  # /m.s
@@ -47,8 +50,9 @@ g_ocean = 0.1  # m/s^2
 H_ocean = c_ocean**2 / g_ocean
 print('H ocean: %.2f' % H_ocean)
 
-alpha = 1e-4  # ocean -> atmos heating coefficient
+alpha = 1e-8  # ocean -> atmos heating coefficient
 gamma = 1e-7  # wind -> ocean wind stress coefficient
+tau   = 1e8   # timescale of radiative cooling
 
 # Dissipation coefficients
 nu_ocean = 1.0e4
@@ -57,8 +61,8 @@ nu_atmos = 1.0e4
 # due to the order of magnitude difference in wave speeds in the two fluids
 # the atmosphere is integrated over a smaller timestep and more often than
 # the ocean.
-ocean_dt = 2500.0
-atmos_dt = ocean_dt / 10
+dt_ocean = 5000.0
+dt_atmos = dt_ocean / 10
 
 # `atmos` represents the first baroclinic mode of the atmosphere.
 # Localised heating below results in convection: convergence
@@ -68,10 +72,11 @@ atmos_dt = ocean_dt / 10
 atmos = PeriodicLinearShallowWater(nx, ny, Lx, Ly,
             beta=beta, f0=f0,
             g=g_atmos, H=H_atmos,
-            dt=atmos_dt, nu=nu_atmos, r=1e-6)
+            dt=dt_atmos, nu=nu_atmos, r=1e-4)
 
-# steady trade winds in the tropics
-atmos.u[:] = -1.0*np.cos(np.pi*atmos.uy/Ly)
+# add steady trade winds in the tropics
+atmos.u[:] = -0.1*np.cos(np.pi*atmos.uy/Ly)**8
+
 
 # `ocean` represents the mixed-layer of the ocean; height `h` is the depth
 # of the thermocline.
@@ -80,15 +85,21 @@ atmos.u[:] = -1.0*np.cos(np.pi*atmos.uy/Ly)
 ocean = WalledLinearShallowWater(nx, ny, Lx, Ly,
             beta=beta, f0=f0,
             g=g_ocean, H=H_ocean,
-            dt=ocean_dt, nu=nu_ocean, r=1e-6)
+            dt=dt_ocean, nu=nu_ocean, r=1e-6)
+#ocean.phi[:] = gauss(atmos, 0, 0, 0.05)
+#ocean.phi[:] = np.cos(np.pi*ocean.phiy/Ly)**8*(-0.1*ocean.phix/Lx)
 
+print("CFL ocean: {}".format(c_ocean * dt_ocean / ocean.dx))
+print("CFL atmos: {}".format(c_atmos * dt_atmos / atmos.dx))
 
 @atmos.add_forcing
 def heating(a):
     global alpha, ocean, atmos
     dstate = np.zeros_like(atmos.state)
-    dstate[2] = -alpha*ocean.h  # thicker ocean layer = hotter.  hotter atmos = thinner atmos
+    dstate[2] = -alpha*ocean.h  # thicker ocean layer = hotter.  hotter atmos => thinner atmos
+    dstate[2] += -atmos.h / tau  # radiative cooling
     return dstate
+
 
 @ocean.add_forcing
 def wind_stress(o):
@@ -105,7 +116,7 @@ def wind_stress(o):
 #     gust = np.zeros_like(atmos.u)
 #     if a.tc % 10000 == 0:
 #         print('gust!')
-#         gust[nx//2-d:nx//2+d, ny//2-d:ny//2+d] = -H_atmos * 0.01 / atmos_dt * (np.sin(np.linspace(0, np.pi, 2*d))**2)[np.newaxis, :] * (np.sin(np.linspace(0, np.pi, 2*d))**2)[:, np.newaxis]
+#         gust[nx//2-d:nx//2+d, ny//2-d:ny//2+d] = -H_atmos * 0.01 / dt_atmos * (np.sin(np.linspace(0, np.pi, 2*d))**2)[np.newaxis, :] * (np.sin(np.linspace(0, np.pi, 2*d))**2)[:, np.newaxis]
 #     dstate[0] = gust
 #     return dstate
 
@@ -124,6 +135,7 @@ num_levels = 24
 colorlevels = np.concatenate([np.linspace(-1, -.05, num_levels//2), np.linspace(.05, 1, num_levels//2)])
 
 cmap = plt.cm.get_cmap('RdBu_r', 13)
+cmapr = plt.cm.get_cmap('RdBu', 13)
 
 def absmax(x):
     return np.max(np.abs(x))
@@ -165,19 +177,27 @@ for i in range(1000000):
 
             plt.clf()
             plt.subplot(131)
-            scaled_h = ocean.h.T * 1e6
-            plt.contourf(hx, hy, scaled_h, cmap=plt.cm.RdBu_r, levels=colorlevels*absmax(scaled_h))
+            scaled_h = ocean.h.T * 1
+            #plt.contourf(hx, hy, scaled_h, cmap=plt.cm.RdBu_r, levels=colorlevels*absmax(scaled_h))
             plt.title('Thermocline perturbation')
-            #plt.imshow(ocean.h.T, cmap=cmap)
+            plt.imshow(scaled_h, cmap=cmap)
+            amax = absmax(scaled_h)
+            plt.clim(-amax, amax)
             plt.colorbar()
 
             plt.subplot(132)
-            plt.contourf(hx, hy, atmos.h.T, cmap=plt.cm.RdBu, levels=colorlevels*H_atmos*0.1)#absmax(atmos.h))
+            #plt.contourf(hx, hy, atmos.h.T, cmap=plt.cm.RdBu, levels=colorlevels*H_atmos*0.1)#absmax(atmos.h))
+            scaled_h = atmos.h.T * 1
+            #plt.contourf(hx, hy, scaled_h, cmap=plt.cm.RdBu_r, levels=colorlevels*absmax(scaled_h))
+            plt.title('Thermocline perturbation')
+            plt.imshow(scaled_h, cmap=cmapr)
+            amax = absmax(scaled_h)
+            plt.clim(-amax, amax)
             plt.colorbar()
             plt.title('Atmosphere')
-            plt.quiver(hx[arrow_spacing], hy[arrow_spacing],
-                np.ma.masked_where(vel.T < 0.1, u.T)[arrow_spacing],
-                np.ma.masked_where(vel.T < 0.1, v.T)[arrow_spacing], pivot='mid', scale=15, width=0.005)
+            # plt.quiver(hx[arrow_spacing], hy[arrow_spacing],
+            #     np.ma.masked_where(vel.T < 0.1, u.T)[arrow_spacing],
+            #     np.ma.masked_where(vel.T < 0.1, v.T)[arrow_spacing], pivot='mid', scale=15, width=0.005)
 
             # plt.subplot(223)
             # plt.contourf(hx, hy, avg_thermocline.T, cmap=plt.cm.RdBu, levels=colorlevels*absmax(avg_thermocline))
