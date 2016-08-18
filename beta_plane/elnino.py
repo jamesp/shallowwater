@@ -34,6 +34,9 @@ Ly = 1.0e7
 def gauss(grid, cx, cy, sigma):
     return np.exp(- (((grid.phix-cx)/grid.Lx)**2 + ((grid.phiy-cy)/grid.Ly)**2) / sigma )
 
+def gaussu(grid, cx, cy, sigma):
+    return np.exp(- (((grid.ux-cx)/grid.Lx)**2 + ((grid.uy-cy)/grid.Ly)**2) / sigma )
+
 # Equatorial Beta-Plane
 f0 = 0.0        # /s
 beta = 2.0e-11  # /m.s
@@ -50,8 +53,8 @@ g_ocean = 0.1  # m/s^2
 H_ocean = c_ocean**2 / g_ocean
 print('H ocean: %.2f' % H_ocean)
 
-alpha = 1e-8  # ocean -> atmos heating coefficient
-gamma = 1e-7  # wind -> ocean wind stress coefficient
+alpha = 1e-6  # ocean -> atmos heating coefficient
+gamma = 5e-7  # wind -> ocean wind stress coefficient
 tau   = 1e8   # timescale of radiative cooling
 
 # Dissipation coefficients
@@ -75,7 +78,7 @@ atmos = PeriodicLinearShallowWater(nx, ny, Lx, Ly,
             dt=dt_atmos, nu=nu_atmos, r=1e-4)
 
 # add steady trade winds in the tropics
-atmos.u[:] = -0.1*np.cos(np.pi*atmos.uy/Ly)**8
+#atmos.u[:] = -0.1*np.cos(np.pi*atmos.uy/Ly)**8
 
 
 # `ocean` represents the mixed-layer of the ocean; height `h` is the depth
@@ -87,7 +90,7 @@ ocean = WalledLinearShallowWater(nx, ny, Lx, Ly,
             g=g_ocean, H=H_ocean,
             dt=dt_ocean, nu=nu_ocean, r=1e-6)
 #ocean.phi[:] = gauss(atmos, 0, 0, 0.05)
-#ocean.phi[:] = np.cos(np.pi*ocean.phiy/Ly)**8*(-0.1*ocean.phix/Lx)
+ocean.phi[:] = np.cos(np.pi*ocean.phiy/Ly)**8*(-2*ocean.phix/Lx)
 
 print("CFL ocean: {}".format(c_ocean * dt_ocean / ocean.dx))
 print("CFL atmos: {}".format(c_atmos * dt_atmos / atmos.dx))
@@ -106,7 +109,7 @@ def wind_stress(o):
     global gamma, ocean, atmos
     dstate = np.zeros_like(ocean.state)
     dstate[0] = gamma*atmos.u
-    dstate[1] = gamma*atmos.v
+    #dstate[1] = gamma*atmos.v
     return dstate
 
 # @atmos.add_forcing
@@ -114,9 +117,12 @@ def wind_stress(o):
 #     global gust, ocean, atmos
 #     dstate = np.zeros_like(atmos.state)
 #     gust = np.zeros_like(atmos.u)
-#     if a.tc % 10000 == 0:
+#     if np.random.random() < 0.01:
 #         print('gust!')
-#         gust[nx//2-d:nx//2+d, ny//2-d:ny//2+d] = -H_atmos * 0.01 / dt_atmos * (np.sin(np.linspace(0, np.pi, 2*d))**2)[np.newaxis, :] * (np.sin(np.linspace(0, np.pi, 2*d))**2)[:, np.newaxis]
+#         x = (np.random.random()-0.5)*atmos.Lx
+#         #y = max(np.random.randn()/8.0, 1.0)*atmos.Ly / 2
+#         y=0
+#         gust = -gaussu(atmos, x, y, 0.01)*0.1
 #     dstate[0] = gust
 #     return dstate
 
@@ -151,7 +157,7 @@ arrow_spacing = slice(ny // 16, None, ny // 9), slice(nx // 12, None, nx // 12)
 avg_thermocline = ocean.h.copy()
 ema_multiplier  = 2.0 / (20 + 1)
 equator_zonal_winds = []
-
+minpoint = []
 plt.show()
 for i in range(1000000):
     ocean.step()
@@ -160,6 +166,9 @@ for i in range(1000000):
 
     if i % 20 == 0:
         print('Time: %.3f days' % (ocean.t / 86400.0))
+
+    mini = np.argmax(ocean.h[:, ny//2])
+    minpoint.append(mini)
 
     if (ocean.t / 86400.0) > 0:
         if i % 10 == 0:
@@ -176,7 +185,7 @@ for i in range(1000000):
             print('Atmos Velocity: %.3f\n' % absmax(velmag(atmos)))
 
             plt.clf()
-            plt.subplot(131)
+            plt.subplot(221)
             scaled_h = ocean.h.T * 1
             #plt.contourf(hx, hy, scaled_h, cmap=plt.cm.RdBu_r, levels=colorlevels*absmax(scaled_h))
             plt.title('Thermocline perturbation')
@@ -185,7 +194,7 @@ for i in range(1000000):
             plt.clim(-amax, amax)
             plt.colorbar()
 
-            plt.subplot(132)
+            plt.subplot(222)
             #plt.contourf(hx, hy, atmos.h.T, cmap=plt.cm.RdBu, levels=colorlevels*H_atmos*0.1)#absmax(atmos.h))
             scaled_h = atmos.h.T * 1
             #plt.contourf(hx, hy, scaled_h, cmap=plt.cm.RdBu_r, levels=colorlevels*absmax(scaled_h))
@@ -202,12 +211,15 @@ for i in range(1000000):
             # plt.subplot(223)
             # plt.contourf(hx, hy, avg_thermocline.T, cmap=plt.cm.RdBu, levels=colorlevels*absmax(avg_thermocline))
 
+            plt.subplot(223)
+            plt.plot(minpoint)
+
             # plt.subplot(223)
             # delta = ocean.h - avg_thermocline
             # plt.contourf(hx, hy, delta.T, cmap=plt.cm.RdBu, levels=colorlevels*absmax(delta))
             # plt.colorbar()
 
-            plt.subplot(133)
+            plt.subplot(224)
             plt.plot(-ocean.h[:, ny//2], label='thermocline')
             plt.plot(-avg_thermocline[:, ny//2], label='moving avg.')
             plt.title('Equatorial Thermocline')

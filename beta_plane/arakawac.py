@@ -2,7 +2,7 @@
 """The Arakawa-C Grid"""
 
 import numpy as np
-import xarray as xr
+#import xarray as xr
 
 class ArakawaCGrid(object):
     def __init__(self, nx, ny, Lx, Ly):
@@ -35,18 +35,18 @@ class ArakawaCGrid(object):
         self.phix = self.vx
         self.phiy = self.uy
 
-        self.data = xr.Dataset(
-            data_vars={
-                'u': (('xb', 'y'), self.u),
-                'v': (('x', 'yb'), self.v),
-                'phi': (('x', 'y'), self.phi)
-            },
-            coords={
-                'x': (('x',), self.phix[:, 0]),
-                'xb': (('xb',), self.ux[:, 0]),
-                'y': (('y',), self.phiy[0, :]),
-                'yb': (('yb',), self.vy[0, :]),
-            })
+        # self.data = xr.Dataset(
+        #     data_vars={
+        #         'u': (('xb', 'y'), self.u),
+        #         'v': (('x', 'yb'), self.v),
+        #         'phi': (('x', 'y'), self.phi)
+        #     },
+        #     coords={
+        #         'x': (('x',), self.phix[:, 0]),
+        #         'xb': (('xb',), self.ux[:, 0]),
+        #         'y': (('y',), self.phiy[0, :]),
+        #         'yb': (('yb',), self.vy[0, :]),
+        #     })
 
     # define u, v and h properties to return state without the boundaries
     @property
