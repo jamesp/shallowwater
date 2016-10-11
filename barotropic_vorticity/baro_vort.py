@@ -320,78 +320,80 @@ while t < tmax:
     high_wn_filter(zt)
 
     if t > tplot:
-
-        # diagnostics
-        urms=np.sqrt(np.mean(psix**2 + psiy**2))
-        rhines_scale = np.sqrt(urms/beta)
-        tot_energy=0.5*urms**2.
-        epsilon = 2 * r_rayleigh * tot_energy
-        l_epsilon = (epsilon / beta**3.)**(1./5.)
-
-        time_arr=np.append(time_arr,t)
-        tot_energy_arr=np.append(tot_energy_arr,tot_energy)
-
-        force=ift(forcet)
-
-
-
-        print('[{:5d}] {:.2f} Max z: {:2.2f} c={:.2f} dt={:.2f} rh_s={:.3f} l_eps={:.3f} ratio={:2.2f} urms={:2.2f}'.format(
-            step, t, np.max(z), c, dt, rhines_scale, l_epsilon, rhines_scale/l_epsilon, urms))
         plt.clf()
-        plt.subplot(231)
-        plt.imshow(z, extent=[0, Lx, 0, Ly], cmap=plt.cm.YlGnBu)
-        plt.xlabel('x')
-        plt.ylabel('y')
-        zmax = np.max(np.abs(z))
-        plt.clim(-zmax,zmax)
-        plt.colorbar(orientation='horizontal')
-        plt.title('Vorticity at {:.2f}s dt={:.2f}'.format(t, dt))
+        plt.imshow(z)
 
-        plt.subplot(232)
-        power = np.fft.fftshift(np.abs(zt)**2, axes=(0,))
-        power_norm = np.log(power)
-        plt.imshow(power_norm,
-                    extent=[np.min(k/dk), np.max(k/dk), np.min(l/dl), np.max(l/dl)])
-#         plt.imshow(filter_testt_shift,
+#         # diagnostics
+#         urms=np.sqrt(np.mean(psix**2 + psiy**2))
+#         rhines_scale = np.sqrt(urms/beta)
+#         tot_energy=0.5*urms**2.
+#         epsilon = 2 * r_rayleigh * tot_energy
+#         l_epsilon = (epsilon / beta**3.)**(1./5.)
+
+#         time_arr=np.append(time_arr,t)
+#         tot_energy_arr=np.append(tot_energy_arr,tot_energy)
+
+#         force=ift(forcet)
+
+
+
+#         print('[{:5d}] {:.2f} Max z: {:2.2f} c={:.2f} dt={:.2f} rh_s={:.3f} l_eps={:.3f} ratio={:2.2f} urms={:2.2f}'.format(
+#             step, t, np.max(z), c, dt, rhines_scale, l_epsilon, rhines_scale/l_epsilon, urms))
+#         plt.clf()
+#         plt.subplot(231)
+#         plt.imshow(z, extent=[0, Lx, 0, Ly], cmap=plt.cm.YlGnBu)
+#         plt.xlabel('x')
+#         plt.ylabel('y')
+#         zmax = np.max(np.abs(z))
+#         plt.clim(-zmax,zmax)
+#         plt.colorbar(orientation='horizontal')
+#         plt.title('Vorticity at {:.2f}s dt={:.2f}'.format(t, dt))
+
+#         plt.subplot(232)
+#         power = np.fft.fftshift(np.abs(zt)**2, axes=(0,))
+#         power_norm = np.log(power)
+#         plt.imshow(power_norm,
 #                     extent=[np.min(k/dk), np.max(k/dk), np.min(l/dl), np.max(l/dl)])
+# #         plt.imshow(filter_testt_shift,
+# #                     extent=[np.min(k/dk), np.max(k/dk), np.min(l/dl), np.max(l/dl)])
 
 
-        plt.xlabel('k/dk')
-        plt.ylabel('l/dl')
-        plt.colorbar(orientation='horizontal')
-        plt.title('Power Spectra')
+#         plt.xlabel('k/dk')
+#         plt.ylabel('l/dl')
+#         plt.colorbar(orientation='horizontal')
+#         plt.title('Power Spectra')
 
-        ax1=plt.subplot(233)
-        ax1.plot(-np.mean(psiy,axis=1),np.linspace(0, Ly, num=ny))
-        ax1.axvline(0, color='black')
-        plt.xlabel('ubar')
+#         ax1=plt.subplot(233)
+#         ax1.plot(-np.mean(psiy,axis=1),np.linspace(0, Ly, num=ny))
+#         ax1.axvline(0, color='black')
+#         plt.xlabel('ubar')
 
-        ax2=ax1.twiny()
-        ax2.plot(np.mean(z,axis=1)+beta*y,np.linspace(0, Ly, num=ny),'g')
-        plt.xlabel('qbar')
+#         ax2=ax1.twiny()
+#         ax2.plot(np.mean(z,axis=1)+beta*y,np.linspace(0, Ly, num=ny),'g')
+#         plt.xlabel('qbar')
 
-        plt.subplot(234)
-        plt.imshow(z+beta*y_arr, extent=[0, Lx, 0, Ly], cmap=plt.cm.YlGnBu)
-        plt.xlabel('x')
-        plt.ylabel('y')
-        zmax = np.max(np.abs(z+beta*y_arr))
-        plt.clim(-zmax,zmax)
-        plt.colorbar(orientation='horizontal')
-        plt.title('Vorticity at {:.2f}s dt={:.2f}'.format(t, dt))
+#         plt.subplot(234)
+#         plt.imshow(z+beta*y_arr, extent=[0, Lx, 0, Ly], cmap=plt.cm.YlGnBu)
+#         plt.xlabel('x')
+#         plt.ylabel('y')
+#         zmax = np.max(np.abs(z+beta*y_arr))
+#         plt.clim(-zmax,zmax)
+#         plt.colorbar(orientation='horizontal')
+#         plt.title('Vorticity at {:.2f}s dt={:.2f}'.format(t, dt))
 
-        plt.subplot(235)
-        plt.plot(time_arr, tot_energy_arr)
-        plt.xlabel('Time')
-        plt.ylabel('Total Energy')
+#         plt.subplot(235)
+#         plt.plot(time_arr, tot_energy_arr)
+#         plt.xlabel('Time')
+#         plt.ylabel('Total Energy')
 
-        plt.subplot(236)
-        plt.imshow(force, extent=[0, Lx, 0, Ly], cmap=plt.cm.YlGnBu)
-        plt.xlabel('x')
-        plt.ylabel('y')
-        forcemax = np.max(np.abs(force))
-        plt.clim(-forcemax,forcemax)
-        plt.colorbar(orientation='horizontal')
-        plt.title('Forcing at {:.2f}s dt={:.2f}'.format(t, dt))
+#         plt.subplot(236)
+#         plt.imshow(force, extent=[0, Lx, 0, Ly], cmap=plt.cm.YlGnBu)
+#         plt.xlabel('x')
+#         plt.ylabel('y')
+#         forcemax = np.max(np.abs(force))
+#         plt.clim(-forcemax,forcemax)
+#         plt.colorbar(orientation='horizontal')
+#         plt.title('Forcing at {:.2f}s dt={:.2f}'.format(t, dt))
 
         plt.pause(0.01)
         tplot = t + PLOT_EVERY_S

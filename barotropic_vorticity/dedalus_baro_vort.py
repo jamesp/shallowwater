@@ -49,73 +49,121 @@ Lx, Ly = (1., 1.)
 nx, ny = (N, N)
 beta = 8.0
 U = 0.0
+dt = 1e-3
 
 # setup the domain
 x_basis = de.Fourier('x', nx, interval=(0, Lx), dealias=3/2)
 y_basis = de.Fourier('y', ny, interval=(0, Ly), dealias=3/2)
 domain = de.Domain([x_basis, y_basis], grid_dtype=np.float64)
 
-problem = de.IVP(domain, variables=['psi', 'zeta', 'u', 'v'])
+problem = de.IVP(domain, variables=['psi', 'zeta'])
 
-problem.parameters['beta'] = beta
-problem.parameters['U'] = U
 
 # solve the problem from the equations
 # ζ = Δψ
 # ∂/∂t[∆ψ] + β ∂/∂x[ψ] = -J(ζ, ψ)
-problem.add_equation("zeta - dx(dx(psi)) - dy(dy(psi)) = 0", condition="(nx != 0) or (ny != 0)")
-problem.add_equation("psi = 0", condition="(nx == 0) and (ny == 0)")
 
-problem.add_equation("dt(zeta) + beta*dx(psi) = - dy(psi)*dx(zeta) + dx(psi)*dy(zeta)")
-problem.add_equation("u + dy(psi) = 0")  # diagnostic
-problem.add_equation("v - dx(psi) = 0")  # diagnostic
+# Everytime you ask for one of the expression on the left, you will get the expression on the right.
+problem.substitutions['u']    = " -dy(psi) "
+problem.substitutions['v']    = "  dx(psi) "
 
-solver = problem.build_solver(de.timesteppers.CNAB2)
-solver.stop_sim_time = np.inf
+problem.substitutions['L(thing_1)']         = "  (d(thing_1,x=2) + d(thing_1,y=2)) "
+problem.substitutions['J(thing_1,thing_2)'] = "  (dx(thing_1)*dy(thing_2) - dy(thing_1)*dx(thing_2)) "
+
+# You can combine things if you want
+problem.substitutions['HD(phi, n)']         = "  -D*(d(phi, x=n) + d(phi, y=n)) "
+
+problem.parameters['beta'] = beta
+problem.parameters['U']    = U
+problem.parameters['D']   = 1e-10 # hyperdiffusion coefficient
+
+problem.add_equation("dt(zeta) + beta*v - HD(zeta, 8) = J(zeta, psi) ")
+problem.add_equation("psi = 0",                                     condition="(nx == 0) and (ny == 0)")
+problem.add_equation("zeta = L(psi)", condition="(nx != 0) or  (ny != 0)")
+
+
+solver = problem.build_solver(de.timesteppers.SBDF3)
+solver.stop_sim_time  = np.inf
 solver.stop_wall_time = np.inf
 solver.stop_iteration = 1000
 
-x = domain.grid(0)
-y = domain.grid(1)
+# vorticity & velocity are no longer states of the system. They are true diagnostic variables.
+# But you still might want to set initial condisitons based on vorticity (for example).
+# To do this you'll have to solve for the streamfunction.
+
+# This will solve for an inital psi, given a vorticity field.
+init = de.LBVP(domain, variables=['init_psi'])
+
+gshape = domain.dist.grid_layout.global_shape(scales=1)
+slices = domain.dist.grid_layout.slices(scales=1)
+rand = np.random.RandomState(seed=42)
+noise = rand.standard_normal(gshape)[slices]
+
+init_vorticity = domain.new_field()
+init_vorticity.set_scales(1)
+
 k = domain.bases[0].wavenumbers[:, np.newaxis]
 l = domain.bases[1].wavenumbers[np.newaxis, :]
 ksq = k**2 + l**2
 
-zeta = solver.state['zeta']
+ck = np.zeros_like(ksq)
+ck = np.sqrt(ksq + (1.0 + (ksq/36.0)**2))**-1
+piit = np.random.randn(*ksq.shape)*ck + 1j*np.random.randn(*ksq.shape)*ck
+pii = np.fft.irfft2(piit.T)
+pii = pii - pii.mean()
+piit = np.fft.rfft2(pii).T
+cslices = domain.dist.coeff_layout.slices(scales=1)
+init_vorticity['c'] = (-ksq*piit)[cslices]
+
+
+# x,y = domain.grids(scales=1)
+
+# init_vorticity['g'] =  (0.5)*noise +  3*np.exp( - 80* ( (x-Lx/2)**2 + (y-Ly/4)**2 ) )
+
+init.parameters['init_vorticity'] = init_vorticity
+
+init.add_equation(" d(init_psi,x=2) + d(init_psi,y=2) = init_vorticity ", condition="(nx != 0) or  (ny != 0)")
+init.add_equation(" init_psi = 0",                                        condition="(nx == 0) and (ny == 0)")
+
+init_solver = init.build_solver()
+init_solver.solve()
+
 psi = solver.state['psi']
-u = solver.state['u']
-v = solver.state['v']
+psi['g'] = init_solver.state['init_psi']['g']
 
-# set an initial condition
-#zeta['g'] = np.exp(-(x/0.1)**2) * np.exp(-(y/0.1)**2)
-#zeta['g'] = np.random.random((nx, ny))
-init = np.random.random(ksq.shape) + 1j*np.random.random(ksq.shape)
-init[ksq > 50**2] = 0
-init[(k**2 + l**2) < 10**2] = 0
-zeta['c'] = init
+# Now you are ready to go.
+# Anytime you ask for zeta, u, or v they will be non-zero because psy is non-zero.
 
-initial_dt = dt = 1e-3 #Lx/nx
-cfl = flow_tools.CFL(solver,initial_dt,safety=0.8)
+cfl = flow_tools.CFL(solver, initial_dt=dt, cadence=10, safety=2,
+                     max_change=1.5, min_change=0.5)
 cfl.add_velocities(('u','v'))
+
+dout = solver.evaluator.add_dictionary_handler(iter=1)
+dout.add_system(solver.state)
+dout.add_task('zeta', scales=1, name='zeta')
+dout.add_task('u', scales=1, name='u')
+dout.add_task('v', scales=1, name='v')
 
 plt.ion()
 fig, axis = plt.subplots(figsize=(10,5))
-p = axis.imshow(zeta['g'].T, cmap=plt.cm.YlGnBu)
+
+im = axis.imshow(init_vorticity['g'].T, cmap=plt.cm.YlGnBu)
 plt.pause(1)
 
 logger.info('Starting loop')
 while solver.ok:
-    # dt = cfl.compute_dt()   # this is returning inf after the first timestep
+    dt = cfl.compute_dt()   # this is returning inf after the first timestep
     # print(dt)
     solver.step(dt)
-    if solver.iteration % 10 == 0:
-        # Update plot of scalar field
-        p.set_data(zeta['g'].T)
-        p.set_clim(np.min(zeta['g']), np.max(zeta['g']))
+    if solver.iteration % 1 == 0:
+        zeta = dout.fields['zeta']['g']
+        im.set_data(zeta.T)
+        maxzeta = np.max(np.abs(zeta))
+        im.set_clim(-maxzeta, maxzeta)
+        plt.pause(0.01)
         logger.info('Iteration: %i, Time: %e, dt: %e' %(solver.iteration, solver.sim_time, dt))
-        plt.pause(0.001)
 
 # Print statistics
-logger.info('Iterations: %i' %solver.iteration)
-
+#logger.info('Iterations: %i' %solver.iteration)
+logger.info('Iteration: %i, Time: %e, dt: %e' %(solver.iteration, solver.sim_time, dt))
 
