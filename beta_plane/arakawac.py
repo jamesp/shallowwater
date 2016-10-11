@@ -2,6 +2,7 @@
 """The Arakawa-C Grid"""
 
 import numpy as np
+#import xarray as xr
 
 class ArakawaCGrid(object):
     def __init__(self, nx, ny, Lx, Ly):
@@ -33,6 +34,19 @@ class ArakawaCGrid(object):
 
         self.phix = self.vx
         self.phiy = self.uy
+
+        # self.data = xr.Dataset(
+        #     data_vars={
+        #         'u': (('xb', 'y'), self.u),
+        #         'v': (('x', 'yb'), self.v),
+        #         'phi': (('x', 'y'), self.phi)
+        #     },
+        #     coords={
+        #         'x': (('x',), self.phix[:, 0]),
+        #         'xb': (('xb',), self.ux[:, 0]),
+        #         'y': (('y',), self.phiy[0, :]),
+        #         'yb': (('yb',), self.vy[0, :]),
+        #     })
 
     # define u, v and h properties to return state without the boundaries
     @property
@@ -141,12 +155,12 @@ class ArakawaCGrid(object):
         field[0, -1] = 0.5*(field[1, -1] + field[0, -2])
         field[-1, -1] = 0.5*(field[-1, -2] + field[-2, -1])
 
-    # def _apply_boundary_conditions(self):
+    # def apply_boundary_conditions(self):
     #     """Set the boundary values of the u v and phi fields.
     #     This should be implemented by a subclass."""
     #     raise NotImplemented
 
-    # def _apply_boundary_conditions_to(self, field):
+    # def apply_boundary_conditions_to(self, field):
     #     """Set the boundary values of a given field.
     #     This should be implemented by a subclass."""
     #     raise NotImplemented
@@ -158,7 +172,7 @@ class PeriodicBoundaries:
     This is a mixin class for the ArakawaCGrid to produce a grid with
     periodic boundaries in the x-direction.
     """
-    def _apply_boundary_conditions(self):
+    def apply_boundary_conditions(self):
         # left and right-hand boundary values the same for u
         # u[0] = u[nx]
         # copy u[dx] to u[nx+dx]
@@ -182,7 +196,7 @@ class PeriodicBoundaries:
             field[:, -1] = field[:, -2]
             self._fix_boundary_corners(field)
 
-    def _apply_boundary_conditions_to(self, field):
+    def apply_boundary_conditions_to(self, field):
         # periodic boundary in the x-direction
         field[0, :] = field[-2, :]
         field[-1, :] = field[1, :]
@@ -199,7 +213,7 @@ class WallBoundaries:
     This is a mixin class for the ArakawaCGrid to produce a grid with
     walled boundaries in the x-direction.
     """
-    def _apply_boundary_conditions(self):
+    def apply_boundary_conditions(self):
         # No flow through the boundary at x=0
         self._u[0, :] = 0
         self._u[1, :] = 0
@@ -219,7 +233,7 @@ class WallBoundaries:
             field[:, -1] = field[:, -2]
             self._fix_boundary_corners(field)
 
-    def _apply_boundary_conditions_to(self, field):
+    def apply_boundary_conditions_to(self, field):
         # free slip on left and right boundares: zero derivative
         field[0, :] = field[1, :]
         field[-1, :] = field[-2, :]
