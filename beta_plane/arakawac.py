@@ -3,6 +3,83 @@
 
 import numpy as np
 
+class Arakawa1D(object):
+    def __init__(self, nx, Lx):
+        super(Arakawa1D, self).__init__()
+        self.nx = nx
+        self.Lx = Lx
+
+        # Arakawa-C grid
+        # +-------+    * (nx, ny)   phi points at grid centres
+        # u  phi  u    * (nx+1, ny) u points on vertical edges  (u[0] and u[nx] are boundary values)
+        # +-------+
+        self._u = np.zeros((nx+3), dtype=np.float)
+        self._phi = np.zeros((nx+2), dtype=np.float)
+
+        self.dx = dx = float(Lx) / nx
+
+        # positions of the nodes
+        self.ux = (-Lx/2 + np.arange(nx+1)*dx)
+        self.phix = (-Lx/2 + dx/2.0 + np.arange(nx)*dx)
+
+    # define u, v and h properties to return state without the boundaries
+    @property
+    def u(self):
+        return self._u[1:-1]
+
+    @property
+    def phi(self):
+        return self._phi[1:-1]
+
+    @property
+    def state(self):
+        return np.array([self.u, self.phi])
+
+    @state.setter
+    def state(self, value):
+        u, phi = value
+        self.u[:] = u
+        self.phi[:] = phi
+
+    # Define finite-difference methods on the grid
+    def diffx(self, psi):
+        """Calculate ∂/∂x[psi] over a single grid square.
+
+        i.e. d/dx(psi)[i,j] = (psi[i+1/2, j] - psi[i-1/2, j]) / dx
+
+        The derivative is returned at x points at the midpoint between
+        x points of the input array."""
+        return (psi[1:] - psi[:-1]) / self.dx
+
+    def diff2x(self, psi):
+        """Calculate ∂2/∂x2[psi] over a single grid square.
+
+        i.e. d2/dx2(psi)[i,j] = (psi[i+1, j] - psi[i, j] + psi[i-1, j]) / dx^2
+
+        The derivative is returned at the same x points as the
+        x points of the input array, with dimension (nx-2, ny)."""
+        return (psi[:-2] - 2*psi[1:-1] + psi[2:]) / self.dx**2
+
+    def x_average(self, psi):
+        """Average adjacent values in the x dimension.
+        If psi has shape (nx, ny), returns an array of shape (nx-1, ny)."""
+        return 0.5*(psi[:-1] + psi[1:])
+
+    def _apply_boundary_conditions(self):
+        # left and right-hand boundary values the same for u
+        # u[0] = u[nx]
+        # copy u[dx] to u[nx+dx]
+        # and u[nx-dx] to u[-dx]
+        # to simulate periodic continuity
+        self._u[0] = self._u[-3]
+        self._u[1] = self._u[-2]
+        self._u[-1] = self._u[2]
+
+        # phi points are not on boundary
+        # so just simulate periodic continuity
+        self._phi[0] = self._phi[-2]
+        self._phi[-1] = self._phi[1]
+
 class ArakawaCGrid(object):
     def __init__(self, nx, ny, Lx, Ly):
         super(ArakawaCGrid, self).__init__()
