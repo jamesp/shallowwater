@@ -1,14 +1,16 @@
-from __future__ import division
+import sys
 
 import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
+from tqdm import tqdm
 
 from shallowwater import PeriodicShallowWater
 from plotting import plot_wind_arrows
 
 nx = 257
 ny = 129
+nd = 20     # number of days to run
 
 DAY = 86400
 RADIUS = 6371e3
@@ -19,22 +21,21 @@ Rd = 2000.0e3  # Fix Rd at 1000km
 Lx = 2*np.pi*RADIUS
 Ly = Lx//2
 
-beta=2.28e-12
-#c = Rd**2 * beta  # Kelvin/gravity wave speed: c = sqrt(phi0)
-c = np.sqrt(300)
+beta0=3e-14
+# Kelvin/gravity wave speed: c = sqrt(phi0)
+phi0 = float(sys.argv[1])
+c = np.sqrt(phi0)
+delta_phi = phi0*0.1
 
 print('c', c)
-phi0 = c**2       # Set phi baseline from deformation radius
-delta_phi = phi0*0.1
 
 # cfl = 0.4         # For numerical stability CFL = |u| dt / dx < 1.0
 # dx  = Lx / nx
 # dt = np.floor(cfl * dx / (c*4))
 # print('dt', dt)
 
-dt = 1200
+dt = 400
 
-gamma = 2.0e-4
 tau_rad  = 5*DAY
 tau_fric = 5*DAY
 
@@ -52,7 +53,6 @@ class MatsunoGill(PeriodicShallowWater):
         dataset['phi_eq_xi'] = xr.DataArray(self.centre_substellar(self.phi_eq()).T.copy(), coords=(dataset.y, dataset.x))
         dataset['phi_xi'] = xr.DataArray(self.centre_substellar(self.phi).T.copy(), coords=(dataset.y, dataset.x))
         return dataset
-
 
     def substellarx(self, t=None):
         if t is None:
@@ -94,79 +94,36 @@ class MatsunoGill(PeriodicShallowWater):
         return np.array([du, dv, dphi])
 
 
-offsets = []
-alphas = [-1., -.5, 0., .5, 1.]
-for a in alphas:
-    atmos = MatsunoGill(nx, ny, Lx, Ly, beta=beta, alpha=a,
-        phi0=phi0, tau_fric=tau_fric, tau_rad=tau_rad,
-        dt=dt, nu=5.0e4)
 
-    snapshots = []
-    while atmos.t < 20*DAY:
+alphas = [-2., -1., -.75,  -.5, -.25, -.1,  0., .1,  .25,  .5, .75, 1., 2.]
+betas = [1, 3, 10, 30, 100, 300]
 
-        if atmos.tc % 50 == 0:
-            print('%.1f\t%.1f' % (atmos.t/DAY, np.max(atmos.u**2)))
-            dset = atmos.to_dataset()
-            dset.coords['time'] = atmos.t
-            snapshots.append(dset)
-        atmos.step()
+odata = []
+for b in tqdm(betas):
+    beta = b*beta0
+    bdata = []
+    for a in tqdm(alphas):
+        atmos = MatsunoGill(nx, ny, Lx, Ly, beta=beta, alpha=a,
+            phi0=phi0, tau_fric=tau_fric, tau_rad=tau_rad,
+            dt=dt, nu=5.0e4)
 
-    adata = xr.concat(snapshots, dim='time')
+        snapshots = []
+        #print('alpha: %.2f' % a)
+        for i in tqdm(range(int(nd*DAY/dt))):
+            if atmos.t % 86400 == 0:
+                #print('%.1f\t%.2f' % (atmos.t/DAY, np.max(atmos.u**2)))
+                dset = atmos.to_dataset()
+                dset.coords['time'] = atmos.t
+                snapshots.append(dset)
+            atmos.step()
 
-    rphi = atmos.centre_substellar(atmos.phi.sum(axis=1))
-    rphieq = atmos.centre_substellar(atmos.phi_eq().sum(axis=1))
-    offsets.append(atmos.phix[np.argmax(rphi)]/atmos.Lx)
+        adata = xr.concat(snapshots, dim='time')
+        adata.coords['alpha'] = a
+        bdata.append(adata)
 
+    data = xr.concat(bdata, dim='alpha')
+    data.coords['beta'] = b
+    odata.append(data)
 
-
-    # plt.plot(atmos.phix/Lx, rphi, label='equator')
-    # plt.plot(atmos.phix/Lx, rphieq, label='phi_eq')
-    # plt.show()
-
-for a, o in zip(alphas, offsets):
-    print(a, o)
-
-
-# plt.ion()
-
-# num_levels = 24
-# colorlevels = np.concatenate([np.linspace(-1, -.05, num_levels//2), np.linspace(.05, 1, num_levels//2)])
-
-# def forceAspect(ax,aspect=1):
-#     im = ax.get_images()
-#     extent =  im[0].get_extent()
-#     ax.set_aspect(abs((extent[1]-extent[0])/(extent[3]-extent[2]))/aspect)
-
-# plt.show()
-# fig, (ax1, ax2) = plt.subplots(2, figsize=(4, 6))
-# for i in range(2000):
-#     atmos.step()
-
-#     if i % 10 == 0:
-#         fig.clf()
-
-#         fig.suptitle('State at T=%.2f days' % (atmos.t / 86400.0))
-
-#         plt.subplot(211)
-#         x, y = np.meshgrid(atmos.phix/RADIUS, atmos.phiy/RADIUS)
-#         rng = np.abs(atmos.phi - phi0).max()
-#         if rng > 0:
-#             plt.contourf(x, y, atmos.phi.T - phi0, cmap=plt.cm.RdBu, levels=colorlevels*rng)
-#             plt.colorbar()
-#             plot_wind_arrows(atmos, (x,y), narrows=(25,25), hide_below=0.01)
-
-
-#         plt.title('Geopotential')
-
-#         plt.subplot(212)
-#         plt.plot(atmos.phix/Lx, atmos.phi.sum(axis=1), label='equator')
-#         plt.plot(atmos.phix/Lx, atmos.phi_eq().sum(axis=1), label='phi_eq')
-#         #plt.plot(atmos.phix/Rd, atmos.phi[:, ny//2+(Ly//Rd//2)], label='tropics')
-#         #plt.ylim(phi0*.99, phi0*1.01)
-#         #plt.legend(loc='lower right')
-#         plt.title('Longitudinal Geopotential')
-#         plt.xlabel('x (multiples of Rd)')
-#         plt.ylabel('Geopotential')
-#         plt.xlim(-.5, .5)
-#         plt.pause(0.01)
-#         plt.draw()
+data = xr.concat(odata, dim='beta')
+data.to_netcdf('beta_data_h%.0f.nc' % (phi0))
