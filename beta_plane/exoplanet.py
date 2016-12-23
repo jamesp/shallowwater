@@ -1,25 +1,25 @@
 import sys
 
-import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
 from tqdm import tqdm
 
-from shallowwater import PeriodicShallowWater
+from shallowwater import PeriodicLinearShallowWater
 from plotting import plot_wind_arrows
 
 nx = 257
 ny = 129
-nd = 20     # number of days to run
+nd = 40     # number of days to run
 
 DAY = 86400
 RADIUS = 6371e3
+PLOT = False
 
 # # Radius of deformation: Rd = sqrt(2 c / beta)
 Rd = 2000.0e3  # Fix Rd at 1000km
 
-Lx = 2*np.pi*RADIUS
-Ly = Lx//2
+Lx = 4*np.pi*RADIUS
+Ly = Lx//4
 
 beta0=3e-14
 # Kelvin/gravity wave speed: c = sqrt(phi0)
@@ -34,18 +34,18 @@ print('c', c)
 # dt = np.floor(cfl * dx / (c*4))
 # print('dt', dt)
 
-dt = 400
+dt = 1200
 
 tau_rad  = 5*DAY
 tau_fric = 5*DAY
 
-class MatsunoGill(PeriodicShallowWater):
+class MatsunoGill(PeriodicLinearShallowWater):
     def __init__(self, nx, ny, Lx, Ly, alpha, beta, phi0,
-        tau_fric, tau_rad, dt=dt, nu=5.0e4):
-        super(MatsunoGill, self).__init__(nx, ny, Lx, Ly, beta=beta, f0=0.0, dt=dt, nu=5.0e4)
+        tau_fric, tau_rad, dt=dt, nu=5.0e2, r=1e-4):
+        super(MatsunoGill, self).__init__(nx, ny, Lx, Ly, beta=beta, g=1.0, H=phi0, f0=0.0, dt=dt, nu=nu, r=r)
         self.alpha = alpha
         self.phi0 = phi0
-        self.phi[:] += phi0
+        #self.phi[:] += phi0
 
     def to_dataset(self):
         dataset = super(MatsunoGill, self).to_dataset()
@@ -75,9 +75,8 @@ class MatsunoGill(PeriodicShallowWater):
         subi = np.argmin(self.phixi**2)
         return np.roll(psi, self.nx//2 - subi, axis=0)
 
-
     def phi_eq(self):
-        return phi0 + delta_phi*np.exp(-((self.phixi)**2 + self.phiy**2) / (Rd**2))
+        return delta_phi*np.exp(-((self.phixi)**2 + self.phiy**2) / (Rd**2))
 
     def rhs(self):
         u, v, phi = self.state
@@ -96,9 +95,18 @@ class MatsunoGill(PeriodicShallowWater):
 
 
 alphas = [-2., -1., -.75,  -.5, -.25, -.1,  0., .1,  .25,  .5, .75, 1., 2.]
-betas = [1, 3, 10, 30, 100, 300]
+#betas = [1, 3, 10, 30, 100, 300]
+betas = [1., 10., 100.]
+# alphas = [0.]
+# betas = [100]
 
 odata = []
+
+if PLOT:
+    import matplotlib.pyplot as plt
+    plt.ion()
+    fig, ax = plt.subplots()
+
 for b in tqdm(betas):
     beta = b*beta0
     bdata = []
@@ -108,13 +116,19 @@ for b in tqdm(betas):
             dt=dt, nu=5.0e4)
 
         snapshots = []
-        #print('alpha: %.2f' % a)
-        for i in tqdm(range(int(nd*DAY/dt))):
+        prog = tqdm(range(int(nd*DAY/dt)))
+        for i in prog:
             if atmos.t % 86400 == 0:
                 #print('%.1f\t%.2f' % (atmos.t/DAY, np.max(atmos.u**2)))
                 dset = atmos.to_dataset()
                 dset.coords['time'] = atmos.t
                 snapshots.append(dset)
+                prog.set_description('u: %.2f' % atmos.u.max())
+                if PLOT:
+                    plt.clf()
+                    dset.phi.plot.contourf(levels=13)
+                    plt.show()
+                    plt.pause(0.01)
             atmos.step()
 
         adata = xr.concat(snapshots, dim='time')
@@ -126,4 +140,4 @@ for b in tqdm(betas):
     odata.append(data)
 
 data = xr.concat(odata, dim='beta')
-data.to_netcdf('beta_data_h%.0f.nc' % (phi0))
+data.to_netcdf('beta_data_linear_h%.0f_longx.nc' % (phi0))
