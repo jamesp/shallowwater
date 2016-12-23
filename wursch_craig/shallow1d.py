@@ -55,7 +55,7 @@ def seconds_to_time(t):
     return "%02d:%02d:%02d" % (h, m, s)
 
 def log(msg):
-    print msg
+    print(msg)
 
 
 
@@ -193,7 +193,7 @@ for t in np.arange(0+dt, T, dt):
         if (t % (dt*N_STEPS_LOG_OUTPUT)) == 0:
             log('------------------')
             log('Time step: %s' % seconds_to_time(t))
-            print 'u', np.mean(u), np.min(u), np.max(u)
+            log('u', np.mean(u), np.min(u), np.max(u))
 
     if SHOW_ANIMATION:
         if (t % (dt*N_STEPS_CHART_REFRESH)) == 0:
