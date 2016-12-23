@@ -46,7 +46,7 @@ References:
 * This code was developed based on a MATLAB script bvebb.m
   (Original source Dr. James Kent & Prof. John Thuburn)
 * And the GFDL documentation for spectral barotropic models
-  found here 
+  found here
   [http://www.gfdl.noaa.gov/cms-filesystem-action/user_files/pjp/barotropic.pdf]
 * McWilliams Initial Condition inspired by pyqg [https://github.com/pyqg/pyqg]
 """
@@ -66,7 +66,7 @@ Lx = 1.0
 Ly = 1.0                        # domain size [m]
 ubar = 0.00                     # background zonal velocity  [m/s]
 beta = 8.0                     # beta-plane f = f0 + βy     [1/s 1/m]
-n_diss = 2.0                    # Small-scale dissipation of the form ∆^2n_diss, such that n_diss = 2 would be a ∆^4 hyperviscosity. 
+n_diss = 2.0                    # Small-scale dissipation of the form ∆^2n_diss, such that n_diss = 2 would be a ∆^4 hyperviscosity.
 tau = 0.1                       # coefficient of dissipation
                                 # smaller = more dissipation
 
@@ -123,19 +123,19 @@ def spectral_variance(phit):
     var_density[:,0] /= 2
     var_density[:,-1] /= 2
     return var_density.sum()
-    
+
 def anti_alias(phit):
     """Set the coefficients of wavenumbers > k_mask to be zero."""
     k_mask = (8./9.)*(nk+1)**2.
-    phit[(np.abs(ksq/(dk*dk)) >= k_mask)] = 0.0    
-    
+    phit[(np.abs(ksq/(dk*dk)) >= k_mask)] = 0.0
+
 def high_wn_filter(phit):
     """Applies the high wavenumber filter of smith et al 2002"""
     filter_dec = -np.log(1.+2.*pi/nk)/((nk-kcut)**filter_exp)
     filter_idx = np.abs(ksq/(dk*dk)) >= kcut**2.
     phit[filter_idx] *= np.exp(filter_dec*(np.sqrt(ksq[filter_idx]/(dk*dk))-kcut)**filter_exp)
-    
-def forcing_spatial_mask(phi):    
+
+def forcing_spatial_mask(phi):
    """TODO: Make spatial mask for forcing"""
    phi[idx_sp_mask] *= 0.
 
@@ -160,7 +160,7 @@ def adams_bashforth(zt, rhs, dt):
         dt2 = -16./12.*dt
         dt3 = 5./12.*dt
 
-    newzt = zt + dt1*rhs + dt2*_prhs + dt3*_pprhs  
+    newzt = zt + dt1*rhs + dt2*_prhs + dt3*_pprhs
     _pprhs = _prhs
     _prhs  = rhs
     return newzt
@@ -254,7 +254,7 @@ psit = -rksq * zt           # F[ψ] = - F[ζ] / (k^2 + l^2)
 psixt, psiyt = grad(psit)
 psix = ift(psixt)
 psiy = ift(psiyt)
-    
+
 urms=np.sqrt(np.mean(psix**2 + psiy**2))
 tot_energy=0.5*urms**2.
 tot_energy_arr[0]=tot_energy
@@ -290,7 +290,7 @@ while t < tmax:
 
     # apply forcing in spectral space by exciting certain wavenumbers
     # (could also apply some real-space forcing and then convert
-    #   into spectral space before adding to rhs) 
+    #   into spectral space before adding to rhs)
     forcet = np.zeros_like(ksq, dtype=complex)
     idx = (14 < np.sqrt(ksq)/dk) & (np.sqrt(ksq)/dk < 20)
     forcet[idx] = 0.5*amp*(np.random.random(ksq.shape)[idx] - 0.5)*np.exp(1j*2.*pi*np.random.random(ksq.shape)[idx])#*(ksq[idx])**(-1./4.)#*np.sin(0.5*t)
@@ -311,8 +311,8 @@ while t < tmax:
     rhs = -jact - beta*psixt + forcet - zt*r_rayleigh
     zt[:] = adams_bashforth(zt, rhs, dt)
     deln = 1.0 / (1.0 + nu*ksq**n_diss*dt)
-#     zt[:] = zt * deln #Testing without hyperviscosity, and with high_wn_filter instead. 
-    
+#     zt[:] = zt * deln #Testing without hyperviscosity, and with high_wn_filter instead.
+
     #anti_alias
     anti_alias(zt)
 
@@ -320,79 +320,81 @@ while t < tmax:
     high_wn_filter(zt)
 
     if t > tplot:
-        
-        # diagnostics
-        urms=np.sqrt(np.mean(psix**2 + psiy**2))
-        rhines_scale = np.sqrt(urms/beta)
-        tot_energy=0.5*urms**2.
-        epsilon = 2 * r_rayleigh * tot_energy
-        l_epsilon = (epsilon / beta**3.)**(1./5.)
-        
-        time_arr=np.append(time_arr,t)
-        tot_energy_arr=np.append(tot_energy_arr,tot_energy)
-        
-        force=ift(forcet)
-
-        
-    
-        print('[{:5d}] {:.2f} Max z: {:2.2f} c={:.2f} dt={:.2f} rh_s={:.3f} l_eps={:.3f} ratio={:2.2f} urms={:2.2f}'.format(
-            step, t, np.max(z), c, dt, rhines_scale, l_epsilon, rhines_scale/l_epsilon, urms))
         plt.clf()
-        plt.subplot(231)
-        plt.imshow(z, extent=[0, Lx, 0, Ly], cmap=plt.cm.YlGnBu)
-        plt.xlabel('x')
-        plt.ylabel('y')
-        zmax = np.max(np.abs(z))
-        plt.clim(-zmax,zmax)
-        plt.colorbar(orientation='horizontal')
-        plt.title('Vorticity at {:.2f}s dt={:.2f}'.format(t, dt))
+        plt.imshow(z)
 
-        plt.subplot(232)
-        power = np.fft.fftshift(np.abs(zt)**2, axes=(0,))
-        power_norm = np.log(power)
-        plt.imshow(power_norm,
-                    extent=[np.min(k/dk), np.max(k/dk), np.min(l/dl), np.max(l/dl)])
-#         plt.imshow(filter_testt_shift,
-#                     extent=[np.min(k/dk), np.max(k/dk), np.min(l/dl), np.max(l/dl)])                 
+#         # diagnostics
+#         urms=np.sqrt(np.mean(psix**2 + psiy**2))
+#         rhines_scale = np.sqrt(urms/beta)
+#         tot_energy=0.5*urms**2.
+#         epsilon = 2 * r_rayleigh * tot_energy
+#         l_epsilon = (epsilon / beta**3.)**(1./5.)
+
+#         time_arr=np.append(time_arr,t)
+#         tot_energy_arr=np.append(tot_energy_arr,tot_energy)
+
+#         force=ift(forcet)
 
 
-        plt.xlabel('k/dk')
-        plt.ylabel('l/dl')
-        plt.colorbar(orientation='horizontal')
-        plt.title('Power Spectra')
-        
-        ax1=plt.subplot(233)
-        ax1.plot(-np.mean(psiy,axis=1),np.linspace(0, Ly, num=ny))
-        ax1.axvline(0, color='black')
-        plt.xlabel('ubar')
-        
-        ax2=ax1.twiny()
-        ax2.plot(np.mean(z,axis=1)+beta*y,np.linspace(0, Ly, num=ny),'g')
-        plt.xlabel('qbar')
 
-        plt.subplot(234)
-        plt.imshow(z+beta*y_arr, extent=[0, Lx, 0, Ly], cmap=plt.cm.YlGnBu)
-        plt.xlabel('x')
-        plt.ylabel('y')
-        zmax = np.max(np.abs(z+beta*y_arr))
-        plt.clim(-zmax,zmax)
-        plt.colorbar(orientation='horizontal')
-        plt.title('Vorticity at {:.2f}s dt={:.2f}'.format(t, dt))
+#         print('[{:5d}] {:.2f} Max z: {:2.2f} c={:.2f} dt={:.2f} rh_s={:.3f} l_eps={:.3f} ratio={:2.2f} urms={:2.2f}'.format(
+#             step, t, np.max(z), c, dt, rhines_scale, l_epsilon, rhines_scale/l_epsilon, urms))
+#         plt.clf()
+#         plt.subplot(231)
+#         plt.imshow(z, extent=[0, Lx, 0, Ly], cmap=plt.cm.YlGnBu)
+#         plt.xlabel('x')
+#         plt.ylabel('y')
+#         zmax = np.max(np.abs(z))
+#         plt.clim(-zmax,zmax)
+#         plt.colorbar(orientation='horizontal')
+#         plt.title('Vorticity at {:.2f}s dt={:.2f}'.format(t, dt))
 
-        plt.subplot(235)
-        plt.plot(time_arr, tot_energy_arr)
-        plt.xlabel('Time')
-        plt.ylabel('Total Energy')
-        
-        plt.subplot(236)
-        plt.imshow(force, extent=[0, Lx, 0, Ly], cmap=plt.cm.YlGnBu)
-        plt.xlabel('x')
-        plt.ylabel('y')
-        forcemax = np.max(np.abs(force))
-        plt.clim(-forcemax,forcemax)
-        plt.colorbar(orientation='horizontal')
-        plt.title('Forcing at {:.2f}s dt={:.2f}'.format(t, dt))      
-        
+#         plt.subplot(232)
+#         power = np.fft.fftshift(np.abs(zt)**2, axes=(0,))
+#         power_norm = np.log(power)
+#         plt.imshow(power_norm,
+#                     extent=[np.min(k/dk), np.max(k/dk), np.min(l/dl), np.max(l/dl)])
+# #         plt.imshow(filter_testt_shift,
+# #                     extent=[np.min(k/dk), np.max(k/dk), np.min(l/dl), np.max(l/dl)])
+
+
+#         plt.xlabel('k/dk')
+#         plt.ylabel('l/dl')
+#         plt.colorbar(orientation='horizontal')
+#         plt.title('Power Spectra')
+
+#         ax1=plt.subplot(233)
+#         ax1.plot(-np.mean(psiy,axis=1),np.linspace(0, Ly, num=ny))
+#         ax1.axvline(0, color='black')
+#         plt.xlabel('ubar')
+
+#         ax2=ax1.twiny()
+#         ax2.plot(np.mean(z,axis=1)+beta*y,np.linspace(0, Ly, num=ny),'g')
+#         plt.xlabel('qbar')
+
+#         plt.subplot(234)
+#         plt.imshow(z+beta*y_arr, extent=[0, Lx, 0, Ly], cmap=plt.cm.YlGnBu)
+#         plt.xlabel('x')
+#         plt.ylabel('y')
+#         zmax = np.max(np.abs(z+beta*y_arr))
+#         plt.clim(-zmax,zmax)
+#         plt.colorbar(orientation='horizontal')
+#         plt.title('Vorticity at {:.2f}s dt={:.2f}'.format(t, dt))
+
+#         plt.subplot(235)
+#         plt.plot(time_arr, tot_energy_arr)
+#         plt.xlabel('Time')
+#         plt.ylabel('Total Energy')
+
+#         plt.subplot(236)
+#         plt.imshow(force, extent=[0, Lx, 0, Ly], cmap=plt.cm.YlGnBu)
+#         plt.xlabel('x')
+#         plt.ylabel('y')
+#         forcemax = np.max(np.abs(force))
+#         plt.clim(-forcemax,forcemax)
+#         plt.colorbar(orientation='horizontal')
+#         plt.title('Forcing at {:.2f}s dt={:.2f}'.format(t, dt))
+
         plt.pause(0.01)
         tplot = t + PLOT_EVERY_S
 
