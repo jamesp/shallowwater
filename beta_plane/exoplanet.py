@@ -9,7 +9,7 @@ from plotting import plot_wind_arrows
 
 nx = 257
 ny = 129
-nd = 40     # number of days to run
+nd = 25     # number of days to run
 
 DAY = 86400
 RADIUS = 6371e3
@@ -95,8 +95,8 @@ class MatsunoGill(PeriodicLinearShallowWater):
 
 
 alphas = [-2., -1., -.75,  -.5, -.25, -.1,  0., .1,  .25,  .5, .75, 1., 2.]
-#betas = [1, 3, 10, 30, 100, 300]
-betas = [1., 10., 100.]
+betas = [1, 3, 10, 30, 100, 300]
+#betas = [1., 10., 100.]
 # alphas = [0.]
 # betas = [100]
 
