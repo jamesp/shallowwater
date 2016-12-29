@@ -7,21 +7,22 @@ from tqdm import tqdm
 from shallowwater import PeriodicLinearShallowWater
 from plotting import plot_wind_arrows
 
-nx = 257
+nx = 128*4
 ny = 129
 nd = 25     # number of days to run
 
 DAY = 86400
 RADIUS = 6371e3
 PLOT = False
+SNAP_DAYS = 5
 
 # # Radius of deformation: Rd = sqrt(2 c / beta)
-Rd = 2000.0e3  # Fix Rd at 1000km
+Rd = 3000.0e3  # Fix Rd at 2000km
 
 Lx = 4*np.pi*RADIUS
 Ly = Lx//4
 
-beta0=3e-14
+beta0=3e-13
 # Kelvin/gravity wave speed: c = sqrt(phi0)
 phi0 = float(sys.argv[1])
 c = np.sqrt(phi0)
@@ -34,10 +35,13 @@ print('c', c)
 # dt = np.floor(cfl * dx / (c*4))
 # print('dt', dt)
 
-dt = 1200
+if c > 32:
+    dt = 600
+else:
+    dt = 1200
 
-tau_rad  = 5*DAY
-tau_fric = 5*DAY
+tau_rad  = 4.0*DAY
+tau_fric = 4.0*DAY
 
 class MatsunoGill(PeriodicLinearShallowWater):
     def __init__(self, nx, ny, Lx, Ly, alpha, beta, phi0,
@@ -97,8 +101,8 @@ class MatsunoGill(PeriodicLinearShallowWater):
 alphas = [-2., -1., -.75,  -.5, -.25, -.1,  0., .1,  .25,  .5, .75, 1., 2.]
 betas = [1, 3, 10, 30, 100, 300]
 #betas = [1., 10., 100.]
-# alphas = [0.]
-# betas = [100]
+#alphas = [0.]
+#betas = [1]
 
 odata = []
 
@@ -113,24 +117,27 @@ for b in tqdm(betas):
     for a in tqdm(alphas):
         atmos = MatsunoGill(nx, ny, Lx, Ly, beta=beta, alpha=a,
             phi0=phi0, tau_fric=tau_fric, tau_rad=tau_rad,
-            dt=dt, nu=5.0e4)
+            dt=dt, nu=5.0e3)
 
         snapshots = []
+        def take_snapshot():
+            dset = atmos.to_dataset()
+            dset.coords['time'] = atmos.t
+            snapshots.append(dset)
+
+        take_snapshot()
         prog = tqdm(range(int(nd*DAY/dt)))
         for i in prog:
-            if atmos.t % 86400 == 0:
+            atmos.step()
+            if atmos.t % (86400*SNAP_DAYS) == 0:
                 #print('%.1f\t%.2f' % (atmos.t/DAY, np.max(atmos.u**2)))
-                dset = atmos.to_dataset()
-                dset.coords['time'] = atmos.t
-                snapshots.append(dset)
+                take_snapshot()
                 prog.set_description('u: %.2f' % atmos.u.max())
                 if PLOT:
                     plt.clf()
                     dset.phi.plot.contourf(levels=13)
                     plt.show()
                     plt.pause(0.01)
-            atmos.step()
-
         adata = xr.concat(snapshots, dim='time')
         adata.coords['alpha'] = a
         bdata.append(adata)
@@ -140,4 +147,4 @@ for b in tqdm(betas):
     odata.append(data)
 
 data = xr.concat(odata, dim='beta')
-data.to_netcdf('beta_data_linear_h%.0f_longx.nc' % (phi0))
+data.to_netcdf('/Users/jp492/Dropbox/data/beta_data_linear_h%.0f.nc' % (phi0))
