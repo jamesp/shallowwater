@@ -62,10 +62,23 @@ class Arakawa1D(object):
         x points of the input array, with dimension (nx-2, ny)."""
         return (psi[:-2] - 2*psi[1:-1] + psi[2:]) / self.dx**2
 
+    del2 = diff2x
+
     def x_average(self, psi):
         """Average adjacent values in the x dimension.
         If psi has shape (nx, ny), returns an array of shape (nx-1, ny)."""
         return 0.5*(psi[:-1] + psi[1:])
+
+    def advect(self, field):
+        """Calculates the conservation of the advected tracer by the fluid flow.
+
+        ∂[q]/∂t + ∇ . (uq) = 0
+
+        Returns the divergence term i.e. ∇.(uq)
+        """
+        q_at_u = self.x_average(field)  # (nx+1)
+
+        return self.diffx(q_at_u * self.u)  # (nx)
 
     def _apply_boundary_conditions(self):
         # left and right-hand boundary values the same for u
@@ -81,6 +94,12 @@ class Arakawa1D(object):
         # so just simulate periodic continuity
         self._phi[0] = self._phi[-2]
         self._phi[-1] = self._phi[1]
+
+    def apply_boundary_conditions_to(self, field):
+        # periodic boundary in the x-direction
+        field[0] = field[-2]
+        field[-1] = field[1]
+
 
 class ArakawaCGrid(object):
     def __init__(self, nx, ny, Lx, Ly):
@@ -238,6 +257,19 @@ class ArakawaCGrid(object):
         field[-1, 0] = 0.5*(field[-2, 0] + field[-1, 1])
         field[0, -1] = 0.5*(field[1, -1] + field[0, -2])
         field[-1, -1] = 0.5*(field[-1, -2] + field[-2, -1])
+
+    def advect(self, field):
+        """Calculates the conservation of the advected tracer by the fluid flow.
+
+        ∂[q]/∂t + ∇ . (uq) = 0
+
+        Returns the divergence term i.e. ∇.(uq)
+        """
+        q_at_u = self.x_average(field)[:, 1:-1]  # (nx+1, ny)
+        q_at_v = self.y_average(field)[1:-1, :]  # (nx, ny+1)
+
+        return self.diffx(q_at_u * self.u) + self.diffy(q_at_v * self.v)  # (nx, ny)
+
 
     # def apply_boundary_conditions(self):
     #     """Set the boundary values of the u v and phi fields.

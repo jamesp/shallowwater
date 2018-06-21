@@ -1,8 +1,8 @@
 import itertools
 
-class TimestepperMixin(object):
+class Timestepper(object):
     """Calculate the time-tendencies and timestepping of the equation
-        dstate/dt = _rhs()
+        dstate/dt = _dstate()
     """
     t = 0.0
     tc = 0
@@ -15,18 +15,21 @@ class TimestepperMixin(object):
         self.t = self.t + self.dt
         self.tc = self.tc + 1
 
-class Euler(TimestepperMixin):
     def dstate(self):
-        dstate =  self.dt*self._rhs()
+        raise NotImplemented()
+
+class Euler(Timestepper):
+    def dstate(self):
+        dstate =  self.dt*self._dstate()
         return dstate
 
 
-class AdamsBashforth3(TimestepperMixin):
+class AdamsBashforth3(Timestepper):
     _pfstate, _ppfstate = 0.0, 0.0
 
     def dstate(self):
         dt = self.dt
-        fstate = self._rhs()
+        fstate = self._dstate()
 
         if self.tc == 0:
             # first step Euler
@@ -49,9 +52,13 @@ class AdamsBashforth3(TimestepperMixin):
         return dstate
 
 
-def sync_state_updates(*objects):
-    dstates = [obj.dstate() for obj in objects]
-    for obj, dstate in zip(objects, dstates):
+def sync_step(*timesteppers):
+    """Synchronize the stepping of several timesteppers.
+    This is important if values of each at a given timestep depend on each
+    other, e.g. if a tracer has a feedback onto other tracers or state variables.
+    """
+    dstates = [obj.dstate() for obj in timesteppers]
+    for obj, dstate in zip(timesteppers, dstates):
         obj.state = obj.state + dstate
         obj._incr_timestep()
 
