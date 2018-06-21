@@ -1,3 +1,5 @@
+import itertools
+
 class TimestepperMixin(object):
     """Calculate the time-tendencies and timestepping of the equation
         dstate/dt = _rhs()
@@ -45,3 +47,11 @@ class AdamsBashforth3(TimestepperMixin):
         # update the cached previous fstate values
         self._ppfstate, self._pfstate = self._pfstate, fstate
         return dstate
+
+
+def sync_state_updates(*objects):
+    dstates = [obj.dstate() for obj in objects]
+    for obj, dstate in zip(objects, dstates):
+        obj.state = obj.state + dstate
+        obj._incr_timestep()
+
