@@ -20,10 +20,37 @@ f = f0 + βy
 import numpy as np
 
 from arakawac import ArakawaCGrid, PeriodicBoundaries, WallBoundaries
-from timesteppers import AdamsBashforth3
+from timesteppers import AdamsBashforth3, sync_state_updates
+
+class Forceable:
+    forcings = None
+
+    def add_forcing(self, fn):
+        """Add a forcing term to the model.  Typically used as a decorator:
+
+            @sw.add_forcing
+            def dissipate(swmodel):
+                dstate = np.zeros_like(swmodel.state)
+                dstate[:] = -swmodel.state*0.001
+                return dstate
+
+        Forcing functions should take a single argument for the model object itself,
+        and return a state delta the same shape as state.
+        """
+        if self.forcings is None:
+            self.forcings = []
+        self.forcings.append(fn)
+        return fn
+
+    def _rhs(self):
+        dstate = np.zeros_like(self.state)
+        if self.forcings:
+            for f in self.forcings:
+                dstate += f(self)
+        return self._dynamics_terms() + self.rhs() + dstate
 
 
-class ShallowWater(ArakawaCGrid, AdamsBashforth3):
+class ShallowWater(ArakawaCGrid, AdamsBashforth3, Forceable):
     """The Shallow Water Equations on the Arakawa-C grid."""
     def __init__(self, nx, ny, Lx=1.0e7, Ly=1.0e7, f0=0.0,
                     beta=0.0, nu=1.0e3, nu_phi=None,
@@ -44,25 +71,7 @@ class ShallowWater(ArakawaCGrid, AdamsBashforth3):
         # timestepping
         self.dt = dt
 
-        self.forcings = []
         self.tracers  = {}
-
-    def add_forcing(self, fn):
-        """Add a forcing term to the model.  Typically used as a decorator:
-
-            sw = PeriodicShallowWater(nx, ny)
-
-            @sw.add_forcing
-            def dissipate(swmodel):
-                dstate = np.zeros_like(swmodel.state)
-                dstate[:] = -swmodel.state*0.001
-                return dstate
-
-        Forcing functions should take a single argument for the model object itself,
-        and return a state delta the same shape as state.
-        """
-        self.forcings.append(fn)
-        return fn
 
     def damping(self, var):
         # sponges are active at the top and bottom of the domain by applying Rayleigh friction
@@ -120,11 +129,13 @@ class ShallowWater(ArakawaCGrid, AdamsBashforth3):
 
         return dstate
 
-    def _rhs(self):
-        dstate = np.zeros_like(self.state)
-        for f in self.forcings:
-            dstate += f(self)
-        return self._dynamics_terms() + self.rhs() + dstate
+
+    def step(self):  # override the basic timestepping `step` to support tracers
+        self.apply_boundary_conditions()
+        for tracer in self.tracers.values():
+            tracer.apply_boundary_conditions()
+
+        sync_state_updates(self, *self.tracers.values())
 
     def add_tracer(self, name, initial_state=0.0, rhs=0, kappa=0.0, damping=1.0):
         """Add a tracer to the shallow water model.
@@ -151,24 +162,6 @@ class ShallowWater(ArakawaCGrid, AdamsBashforth3):
     def __getattr__(self, name):
         if name in self.tracers:
             return self.tracer(name)
-
-    def step(self):  # override the basic timestepping `step` to support tracers
-        dt, tc = self.dt, self.tc
-
-        self.apply_boundary_conditions()
-        for tracer in self.tracers.values():
-            tracer.apply_boundary_conditions()
-
-        newstate = self.state + self.dstate()
-
-        # calculate all tracer dstates before updating any of them
-        dstates = [t.dstate() for t in self.tracers.values()]
-        for tracer, dstate in zip(self.tracers.values(), dstates):
-            tracer.state = tracer.state + dstate
-            tracer._incr_timestep()
-
-        self.state = newstate
-        self._incr_timestep()
 
 
 class LinearShallowWater(ShallowWater):
@@ -213,7 +206,7 @@ class LinearShallowWater(ShallowWater):
         return dstate
 
 
-class ShallowWaterTracer(AdamsBashforth3):
+class ShallowWaterTracer(AdamsBashforth3, Forceable):
     def __init__(self, name, grid, kappa=0.0, initial_state=0.0, damping=0.0):
         self.name = name
         self.grid = grid
@@ -225,8 +218,6 @@ class ShallowWaterTracer(AdamsBashforth3):
         self.damping = damping
 
         self.dt = grid.dt
-
-        self.forcings = []
 
     @property
     def state(self):
@@ -255,26 +246,13 @@ class ShallowWaterTracer(AdamsBashforth3):
     def _diffusion(self):
         return self.kappa*self.grid.del2(self._state) + self.damping*self.grid.damping(self.state)
 
-    def _rhs(self):
-        forcings = np.zeros_like(self.state)
-        for f in self.forcings:
-            forcings += f(self)
-        return self._diffusion() - self._advection() + self.rhs() + forcings
+    def _dynamics_terms(self):
+        return self._diffusion() - self._advection()
 
     def rhs(self):
         """Set a right-hand side term for the equation.
         Default is 0.0, override this method when subclassing."""
         return 0.0
-
-    def add_forcing(self, fn):
-        """Add a forcing term to the tracer.  Typically used as a decorator,
-        see the ShallowWater class for an example.
-
-        Forcing functions should take a single argument for the tracer object itself,
-        and return a state delta the same shape as state.
-        """
-        self.forcings.append(fn)
-        return fn
 
     def step(self):
         self.apply_boundary_conditions()
@@ -289,7 +267,6 @@ class ShallowWaterTracer(AdamsBashforth3):
 
     def __getitem__(self, slice):
         return self.state[slice]
-
 
 
 class PeriodicShallowWater(PeriodicBoundaries, ShallowWater): pass
@@ -327,6 +304,10 @@ if __name__ == '__main__':
 
     num_levels = 24
     colorlevels = np.concatenate([np.linspace(-1, -.05, num_levels//2), np.linspace(.05, 1, num_levels//2)])
+
+    print(ocean.forcings is ocean.q.forcings)
+    print(ocean.tracers)
+    print(ocean.q.forcings)
 
     ts = []
     es = []
