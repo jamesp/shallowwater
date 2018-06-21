@@ -24,6 +24,10 @@ class Arakawa1D(object):
         self.ux = (-Lx/2 + np.arange(nx+1)*dx)
         self.phix = (-Lx/2 + dx/2.0 + np.arange(nx)*dx)
 
+        self.shape = self.phi.shape
+        self._shape = self._phi.shape
+        self.true_slice = [slice(1,-1)]*len(self.shape)  # slice of state arrays w/out BCs
+
     # define u, v and h properties to return state without the boundaries
     @property
     def u(self):
@@ -108,6 +112,7 @@ class ArakawaCGrid(object):
         self.ny = ny
         self.Lx = Lx
         self.Ly = Ly
+        self.true_slice = [slice(1,-1)]*2  # slice of state arrays w/out BCs
 
         # Arakawa-C grid
         # +-- v --+
@@ -131,6 +136,9 @@ class ArakawaCGrid(object):
 
         self.phix = self.vx
         self.phiy = self.uy
+
+        self.shape = self.phi.shape
+        self._shape = self._phi.shape
 
     # @property
     # def coords(self):

@@ -22,9 +22,11 @@ import numpy as np
 from arakawac import ArakawaCGrid, PeriodicBoundaries, WallBoundaries
 from timesteppers import AdamsBashforth3, sync_step
 
-class Dynamic:
+class Dynamic(AdamsBashforth3):
     """Common base class for all shallow water models and tracers."""
-    forcings = None
+    def __init__(self):
+        super(Dynamic, self).__init__()
+        self.forcings = []
 
     def add_forcing(self, fn):
         """Add a forcing term to the model.  Typically used as a decorator:
@@ -35,12 +37,9 @@ class Dynamic:
                 dstate[:] = -swmodel.state*0.001
                 return dstate
 
-        Forcing functions should take a single argument for the model object itself,
+        Forcing functions should take a single argument for the model/tracer itself,
         and return a state delta the same shape as state.
         """
-        if self.forcings is None:
-            self.forcings = []
-
         self.forcings.append(fn)
         return fn
 
@@ -51,9 +50,15 @@ class Dynamic:
                 dstate += f(self)
         return self._dynamics() + dstate
 
+    def _dynamics(self):
+        # should be implemented by the model
+        raise NotImplemented()
 
-class HasTracers:
-    tracers  = None
+
+class Model(Dynamic):
+    def __init__(self):
+        super(Model, self).__init__()
+        self.tracers  = {}
 
     def add_tracer(self, name, initial_state=0.0, kappa=0.0):
         """Add a tracer to the shallow water model.
@@ -67,10 +72,7 @@ class HasTracers:
         Once a tracer has been added to the model it's value can be accessed
         by the from the model.tracers dict, or from model.tracer_name.
         """
-        if self.tracers is None:
-            self.tracers = {}
-
-        t = ShallowWaterTracer(name, grid=self, kappa=kappa,
+        t = Tracer(name, grid=self, kappa=kappa,
                             initial_state=initial_state)
         self.tracers[name] = t
         if not hasattr(self, name):
@@ -87,7 +89,7 @@ class HasTracers:
 
         sync_step(self, *self.tracers.values())
 
-class ShallowWater(ArakawaCGrid, Dynamic, HasTracers, AdamsBashforth3):
+class ShallowWater(ArakawaCGrid, Model):
     """The Shallow Water Equations on the Arakawa-C grid."""
     def __init__(self, nx, ny, Lx=1.0e7, Ly=1.0e7, f0=0.0,
                     beta=0.0, nu=1.0e3, nu_phi=None,
@@ -107,9 +109,6 @@ class ShallowWater(ArakawaCGrid, Dynamic, HasTracers, AdamsBashforth3):
 
         # timestepping
         self.dt = dt
-
-        self.forcings = []
-        self.tracers = {}
 
     def damping(self, var):
         # sponges are active at the top and bottom of the domain by applying Rayleigh friction
@@ -205,26 +204,27 @@ class LinearShallowWater(ShallowWater):
         return dstate
 
 
-class ShallowWaterTracer(AdamsBashforth3, Dynamic):
+class Tracer(Dynamic):
     def __init__(self, name, grid, kappa=0.0, initial_state=0.0):
+        super(Tracer, self).__init__()
         self.name = name
         self.grid = grid
 
-        self._inside_slice = [slice(1,-1)]*np.ndim(grid._phi)
-        self._state = np.zeros_like(grid._phi)  # store tracer on cell centres
-        self.state = initial_state
+        self._state = np.zeros(grid._shape)  # store tracer on cell centres
         self.kappa = kappa # diffusion
+
+        self.state = initial_state
 
         self.dt = grid.dt
 
     @property
     def state(self):
         # view without boundary conditions
-        return self._state[self._inside_slice]
+        return self._state[self.grid.true_slice]
 
     @state.setter
     def state(self, value):
-        self._state[self._inside_slice] = value
+        self._state[self.grid.true_slice] = value
 
     def _diffusion(self):
         return self.kappa*self.grid.del2(self._state)
@@ -290,9 +290,7 @@ if __name__ == '__main__':
     num_levels = 24
     colorlevels = np.concatenate([np.linspace(-1, -.05, num_levels//2), np.linspace(.05, 1, num_levels//2)])
 
-    print(ocean.forcings is ocean.q.forcings)
-    print(ocean.tracers)
-    print(ocean.q.forcings)
+    print(ocean.q.state)
 
     ts = []
     es = []

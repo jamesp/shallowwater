@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 from shallowwater import PeriodicShallowWater
 from spectral_analysis import background, kiladis_spectra
 
+
+
 if __name__ == '__main__':
     nx = 128
     ny = 129
@@ -13,8 +15,8 @@ if __name__ == '__main__':
     Lx = 1.0e7
     Ly = 1.0e7
 
-    dt = 3000.0
-    phi0 = 10.0
+    dt = 500.0
+    phi0 = 100.0
 
     ocean = PeriodicShallowWater(nx, ny, Lx, Ly, beta=beta, f0=0.0, dt=dt, nu=1.0e3)
 
@@ -27,7 +29,15 @@ if __name__ == '__main__':
     hump = (np.sin(np.linspace(0, np.pi, 2*d))**2)[np.newaxis, :] * (np.sin(np.linspace(0, np.pi, 2*d))**2)[:, np.newaxis]
 
     ocean.phi[:] += phi0
-    ocean.phi[70-d:70+d, ny//2-d:ny//2+d] += hump*0.1
+    #ocean.phi[70-d:70+d, ny//2-d:ny//2+d] += hump*0.1
+    for i in range(30):
+        ocean.phi[:] += 0.1*np.real(np.exp(1j*(i+1)*2*np.pi*np.random.random((nx, ny))))
+        # phase = np.random.random()
+        # amp = np.random.random()*0.1
+        # wv = np.random.randint(30)
+        # ocean.phi[:] += (amp
+        #     * np.cos(2*np.pi*wv*(ocean.phix / ocean.Lx - np.random.random()))
+        #     * np.cos(2*np.pi*wv*(ocean.phiy / ocean.Ly - np.random.random())))
     #ocean.phi[:] -= hump.sum()/(ocean.nx*ocean.ny)
 
     initial_phi = ocean.phi.copy()

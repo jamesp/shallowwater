@@ -3,11 +3,10 @@
 import numpy as np
 
 from arakawac import Arakawa1D
-from timesteppers import AdamsBashforth3
-from shallowwater import Dynamic, HasTracers
+from shallowwater import Model
 
 
-class ShallowWater1D(Arakawa1D, Dynamic, HasTracers, AdamsBashforth3):
+class ShallowWater1D(Arakawa1D, Model):
     """The Shallow Water Equations on the Arakawa-C grid."""
     def __init__(self, nx, Lx=1.0e7, nu=1.0e3, nu_phi=None, dt=1000.0):
         super(ShallowWater1D, self).__init__(nx, Lx)
