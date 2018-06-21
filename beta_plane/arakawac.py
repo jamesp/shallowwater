@@ -4,6 +4,7 @@
 import numpy as np
 #import xarray as xr
 
+
 class Arakawa1D(object):
     def __init__(self, nx, Lx):
         super(Arakawa1D, self).__init__()
@@ -112,18 +113,24 @@ class ArakawaCGrid(object):
         self.phix = self.vx
         self.phiy = self.uy
 
-        # self.data = xr.Dataset(
-        #     data_vars={
-        #         'u': (('xb', 'y'), self.u),
-        #         'v': (('x', 'yb'), self.v),
-        #         'phi': (('x', 'y'), self.phi)
-        #     },
-        #     coords={
-        #         'x': (('x',), self.phix[:, 0]),
-        #         'xb': (('xb',), self.ux[:, 0]),
-        #         'y': (('y',), self.phiy[0, :]),
-        #         'yb': (('yb',), self.vy[0, :]),
-        #     })
+    # @property
+    # def coords(self):
+    #     return {
+    #         'x': self.phix[:,0],
+    #         'y': self.phiy[0],
+    #         'xb': self.ux[:,0],
+    #         'yb': self.vy[0]
+    #     }
+
+    # def to_dataset(self):
+    #     """Convert to a xarray.Dataset."""
+    #     return xr.Dataset(data_vars={
+    #                 'phi': (['y', 'x'], self.phi.T.copy()),
+    #                 'u': (['y', 'xb'], self.u.T.copy()),
+    #                 'v': (['yb', 'x'], self.v.T.copy())
+    #             },
+    #             coords=self.coords)
+
 
     # define u, v and h properties to return state without the boundaries
     @property

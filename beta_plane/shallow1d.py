@@ -7,13 +7,12 @@ from timesteppers import adamsbashforthgen
 
 class ShallowWater1D(Arakawa1D):
     """The Shallow Water Equations on the Arakawa-C grid."""
-    def __init__(self, nx, Lx=1.0e7, nu=1.0e3, nu_phi=None, r=1.0e-5, dt=1000.0):
+    def __init__(self, nx, Lx=1.0e7, nu=1.0e3, nu_phi=None, dt=1000.0):
         super(ShallowWater1D, self).__init__(nx, Lx)
 
-                # dissipation and friction
+        # dissipation and friction
         self.nu = nu                                    # u, v dissipation
         self.nu_phi = nu if nu_phi is None else nu_phi  # phi dissipation
-        self.r = r
 
         # timestepping
         self.dt = dt
@@ -22,7 +21,7 @@ class ShallowWater1D(Arakawa1D):
 
         self._stepper = adamsbashforthgen(self._rhs, self.dt)
 
-        self._forcings = []
+        self.forcings = []
         self._tracers  = {}
 
     def add_forcing(self, fn):
@@ -37,7 +36,7 @@ class ShallowWater1D(Arakawa1D):
         Forcing functions should take a single argument for the model object itself,
         and return a state delta the same shape as state.
         """
-        self._forcings.append(fn)
+        self.forcings.append(fn)
         return fn
 
     def rhs(self):
@@ -54,7 +53,7 @@ class ShallowWater1D(Arakawa1D):
         # the height equation
         phi_at_u = self.x_average(self._phi)  # (nx+1)
         phi_rhs  = - self.diffx(phi_at_u * self.u)       # (nx) nonlinear
-        # phi_rhs  = - self.diffx(np.mean(phi) * self.u)       # (nx) linear
+        #phi_rhs  = - self.diffx(np.mean(phi_at_u) * self.u)       # (nx) linear
         phi_rhs += self.nu_phi*self.diff2x(self._phi)    # (nx) diffusion
 
         # the u equation
@@ -70,7 +69,7 @@ class ShallowWater1D(Arakawa1D):
 
     def _rhs(self):
         dstate = np.zeros_like(self.state)
-        for f in self._forcings:
+        for f in self.forcings:
             dstate += f(self)
         return self._dynamics_terms() + self.rhs() + dstate
 
@@ -84,40 +83,67 @@ class ShallowWater1D(Arakawa1D):
         self.t  += dt
         self.tc += 1
 
+class LinearShallowWater1D(ShallowWater1D):
+    def __init__(self, nx, Lx=1.0e7, H=100., nu=1.0e3, nu_phi=None, dt=1000.0):
+        super(LinearShallowWater1D, self).__init__(nx, Lx=Lx, nu=nu, nu_phi=nu_phi, dt=dt)
+        self.H = H
+
+    def _dynamics_terms(self):
+        """Calculate the dynamics for the u, v and phi equations."""
+        # ~~~ Linear Dynamics ~~~
+        ubarx = self.x_average(self._u)
+
+        # the height equation
+        phi_rhs  = - self.H*self.diffx(self.u)       # (nx) linear
+        phi_rhs += self.nu_phi*self.diff2x(self._phi)    # (nx) diffusion
+
+        # the u equation
+        dhdx = self.diffx(self._phi)         # (nx+2)
+        u_rhs  = -dhdx
+        u_rhs += self.nu*self.diff2x(self._u)
+
+        dstate = np.array([u_rhs, phi_rhs])
+        return dstate
+
+
 if __name__ == '__main__':
-    H = 2.
-    T = 100
-    nx = 128
-    Lx = 2*np.pi
-
-    sw = ShallowWater1D(nx, Lx, nu=0, r=0, dt=.01)
-    sw.phi[:] = H
-
     import matplotlib.pyplot as plt
 
-    plt.ion()
+    H = 2.
+    s = 1.
+    nx = 128
+    Lx = 2*np.pi
+    xi_ref_frame = False
 
-    # phi_eq = sw.phi.copy()
-    # phi_eq[10:10+2*d] += H*.1*(np.sin(np.linspace(0, np.pi, 2*d))**2)
+    sw = LinearShallowWater1D(nx, Lx, H=H, nu=3e-3, dt=.01)
 
-    def phi_eq(t):
-        phi_eq = np.cos(sw.phix - t/T)
+    # #### forcings ####
+    def exoplanet_diurnal_cycle(t):
+        phi_eq = np.exp(1j*(sw.phix - s*t))
         phi_eq[phi_eq < 0] = 0.0
-        return H + phi_eq*0.1*H
+        return phi_eq*0.1*H
 
-    @sw.add_forcing
-    def force(sw):
-        #sw._u[:] = 0.
+    def diurnal_forcing(sw):
+        t_rad = 10.0
+        t_fric = 10.0
+
+        # rayleigh friction
         du = np.zeros_like(sw.u)
-        dphi = np.zeros_like(sw.phi)
+        du = -sw.u/t_fric
 
-        du = -sw.u*1e-3
-        ss = phi_eq(sw.t)
-        dphi[:] = (ss - sw.phi) / 100.
+        # newtonian cooling
+        dphi = np.zeros_like(sw.phi)
+        ss = exoplanet_diurnal_cycle(sw.t)
+        dphi[:] = (ss - sw.phi) / t_rad
         return np.array([du, dphi])
 
-    ts = []
-    es = []
+
+    # #### initial state ####
+    # sw.phi[:] = 0  # this is the default
+    sw.phi[:] += np.exp(-((1.0-sw.phix)/.3)**2)  # gaussian blob centred at 1.0
+    #sw.add_forcing(diurnal_forcing)
+
+    plt.ion()
     plt.show()
     for i in range(10000):
         sw.step()
@@ -125,14 +151,21 @@ if __name__ == '__main__':
             print('[t={:7.2f} h range [{:.2f}, {:.2f}]'.format(sw.t/86400, sw.phi.min(), sw.phi.max()))
             plt.figure(1)
             plt.clf()
-            plt.plot(sw.phi)
-            plt.plot(phi_eq(sw.t))
 
-            plt.ylim(H*0.9, H*1.2)
+            peq = exoplanet_diurnal_cycle(sw.t)
 
-            # plt.figure(2)
-            # plt.clf()
-            # plt.plot(sw.u)
+            if xi_ref_frame:
+                rollx = np.argmax(peq)
+                plt.plot(sw.phix, np.roll(sw.phi, -rollx+nx//2))
+                if diurnal_forcing in sw.forcings:
+                    plt.plot(sw.phix, np.roll(peq, -rollx+nx//2))
+            else:
+                # plot in the x reference frame
+                plt.plot(sw.phix, sw.phi)
+                if diurnal_forcing in sw.forcings:
+                    plt.plot(sw.phix, peq)
 
+            plt.ylim(-1, 1)
+            plt.xlim(-Lx/2, Lx/2)
             plt.pause(0.01)
             plt.draw()
