@@ -2,8 +2,6 @@
 """The Arakawa-C Grid"""
 
 import numpy as np
-#import xarray as xr
-
 
 class Arakawa1D(object):
     def __init__(self, nx, Lx):
@@ -12,8 +10,8 @@ class Arakawa1D(object):
         self.Lx = Lx
 
         # Arakawa-C grid
-        # +-------+    * (nx, ny)   phi points at grid centres
-        # u  phi  u    * (nx+1, ny) u points on vertical edges  (u[0] and u[nx] are boundary values)
+        # +-------+    * (nx)   phi points at grid centres
+        # u  phi  u    * (nx+1) u points on vertical edges  (u[0] and u[nx] are boundary values)
         # +-------+
         self._u = np.zeros((nx+3), dtype=np.float)
         self._phi = np.zeros((nx+2), dtype=np.float)
@@ -63,14 +61,14 @@ class Arakawa1D(object):
         i.e. d2/dx2(psi)[i,j] = (psi[i+1, j] - psi[i, j] + psi[i-1, j]) / dx^2
 
         The derivative is returned at the same x points as the
-        x points of the input array, with dimension (nx-2, ny)."""
+        x points of the input array, with dimension (nx-2)."""
         return (psi[:-2] - 2*psi[1:-1] + psi[2:]) / self.dx**2
 
     del2 = diff2x
 
     def x_average(self, psi):
         """Average adjacent values in the x dimension.
-        If psi has shape (nx, ny), returns an array of shape (nx-1, ny)."""
+        If psi has shape (nx), returns an array of shape (nx-1)."""
         return 0.5*(psi[:-1] + psi[1:])
 
     def advect(self, field):
@@ -139,25 +137,6 @@ class ArakawaCGrid(object):
 
         self.shape = self.phi.shape
         self._shape = self._phi.shape
-
-    # @property
-    # def coords(self):
-    #     return {
-    #         'x': self.phix[:,0],
-    #         'y': self.phiy[0],
-    #         'xb': self.ux[:,0],
-    #         'yb': self.vy[0]
-    #     }
-
-    # def to_dataset(self):
-    #     """Convert to a xarray.Dataset."""
-    #     return xr.Dataset(data_vars={
-    #                 'phi': (['y', 'x'], self.phi.T.copy()),
-    #                 'u': (['y', 'xb'], self.u.T.copy()),
-    #                 'v': (['yb', 'x'], self.v.T.copy())
-    #             },
-    #             coords=self.coords)
-
 
     # define u, v and h properties to return state without the boundaries
     @property
