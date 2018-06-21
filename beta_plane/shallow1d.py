@@ -21,7 +21,7 @@ class ShallowWater1D(Arakawa1D):
 
         self._stepper = adamsbashforthgen(self._rhs, self.dt)
 
-        self._forcings = []
+        self.forcings = []
         self._tracers  = {}
 
     def add_forcing(self, fn):
@@ -36,7 +36,7 @@ class ShallowWater1D(Arakawa1D):
         Forcing functions should take a single argument for the model object itself,
         and return a state delta the same shape as state.
         """
-        self._forcings.append(fn)
+        self.forcings.append(fn)
         return fn
 
     def rhs(self):
@@ -69,7 +69,7 @@ class ShallowWater1D(Arakawa1D):
 
     def _rhs(self):
         dstate = np.zeros_like(self.state)
-        for f in self._forcings:
+        for f in self.forcings:
             dstate += f(self)
         return self._dynamics_terms() + self.rhs() + dstate
 
@@ -107,83 +107,65 @@ class LinearShallowWater1D(ShallowWater1D):
 
 
 if __name__ == '__main__':
+    import matplotlib.pyplot as plt
+
     H = 2.
-    s = 0.
+    s = 1.
     nx = 128
     Lx = 2*np.pi
     xi_ref_frame = False
 
-    # sw = ShallowWater1D(nx, Lx, nu=0, dt=.01)
-    # sw.phi[:] = H
+    sw = LinearShallowWater1D(nx, Lx, H=H, nu=3e-3, dt=.01)
 
-    # sw2 = ShallowWater1D(nx, Lx, nu=0, dt=.01)
-    # sw2.phi[:] = H
+    # #### forcings ####
+    def exoplanet_diurnal_cycle(t):
+        phi_eq = np.exp(1j*(sw.phix - s*t))
+        phi_eq[phi_eq < 0] = 0.0
+        return phi_eq*0.1*H
 
-    sw = LinearShallowWater1D(nx, Lx, H=H, nu=0, dt=.01)
-    sw2 = LinearShallowWater1D(nx, Lx, H=H, nu=0, dt=.01)
+    def diurnal_forcing(sw):
+        t_rad = 10.0
+        t_fric = 10.0
 
-    import matplotlib.pyplot as plt
+        # rayleigh friction
+        du = np.zeros_like(sw.u)
+        du = -sw.u/t_fric
+
+        # newtonian cooling
+        dphi = np.zeros_like(sw.phi)
+        ss = exoplanet_diurnal_cycle(sw.t)
+        dphi[:] = (ss - sw.phi) / t_rad
+        return np.array([du, dphi])
+
+
+    # #### initial state ####
+    # sw.phi[:] = 0  # this is the default
+    sw.phi[:] += np.exp(-((1.0-sw.phix)/.3)**2)  # gaussian blob centred at 1.0
+    #sw.add_forcing(diurnal_forcing)
 
     plt.ion()
-
-    # phi_eq = sw.phi.copy()
-    # phi_eq[10:10+2*d] += H*.1*(np.sin(np.linspace(0, np.pi, 2*d))**2)
-
-    def phi_eq(t):
-        phi_eq = np.exp(1j*(sw.phix - s*t))#np.cos(sw.phix - t/T)
-        #phi_eq[phi_eq < 0] = 0.0
-        return H + phi_eq*0.1*H
-
-    def phi_eq2(t):
-        phi_eq = np.exp(1j*(sw.phix - s*t))#np.cos(sw.phix - t/T)
-        phi_eq[phi_eq < 0] = 0.0
-        return H + phi_eq*0.1*H
-
-    @sw.add_forcing
-    def force(sw):
-        #sw._u[:] = 0.
-        du = np.zeros_like(sw.u)
-        dphi = np.zeros_like(sw.phi)
-
-        du = -sw.u/1.
-        ss = phi_eq(sw.t)
-        dphi[:] = (ss - sw.phi) / 1.
-        return np.array([du, dphi])
-
-    @sw2.add_forcing
-    def force(sw):
-        #sw._u[:] = 0.
-        du = np.zeros_like(sw.u)
-        dphi = np.zeros_like(sw.phi)
-
-        du = -sw.u/1.
-        ss = phi_eq2(sw.t)
-        dphi[:] = (ss - sw.phi) / 1.
-        return np.array([du, dphi])
-
     plt.show()
     for i in range(10000):
         sw.step()
-        sw2.step()
         if i % 20 == 0:
             print('[t={:7.2f} h range [{:.2f}, {:.2f}]'.format(sw.t/86400, sw.phi.min(), sw.phi.max()))
             plt.figure(1)
             plt.clf()
 
-            peq = phi_eq(sw.t)
+            peq = exoplanet_diurnal_cycle(sw.t)
 
             if xi_ref_frame:
                 rollx = np.argmax(peq)
                 plt.plot(sw.phix, np.roll(sw.phi, -rollx+nx//2))
-                plt.plot(sw2.phix, np.roll(sw2.phi, -rollx+nx//2))
-                plt.plot(sw.phix, np.roll(phi_eq(sw.t), -rollx+nx//2))
+                if diurnal_forcing in sw.forcings:
+                    plt.plot(sw.phix, np.roll(peq, -rollx+nx//2))
             else:
                 # plot in the x reference frame
                 plt.plot(sw.phix, sw.phi)
-                plt.plot(sw2.phix, sw2.phi)
-                plt.plot(sw.phix, peq)
+                if diurnal_forcing in sw.forcings:
+                    plt.plot(sw.phix, peq)
 
-            plt.ylim(H*0.9, H*1.2)
+            plt.ylim(-1, 1)
             plt.xlim(-Lx/2, Lx/2)
             plt.pause(0.01)
             plt.draw()
