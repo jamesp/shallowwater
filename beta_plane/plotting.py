@@ -7,7 +7,9 @@ def colourlevels(num_levels=24):
     Useful for `contourf` plots centred on zero."""
     return np.concatenate([np.linspace(-1, -.05, num_levels//2), np.linspace(.05, 1, num_levels//2)])
 
-def plot_wind_arrows(model, meshpoints, normalise=True, narrows=(12, 9), hide_below=0.1):
+def plot_wind_arrows(model, meshpoints, normalise=True, narrows=(12, 9), hide_below=0.1, **kwargs):
+    plotargs = dict(pivot='mid', scale=20, width=0.002)
+    plotargs.update(kwargs)
     u, v = model.uvath()
     vel = np.sqrt(u**2 + v**2)
     if normalise:
@@ -25,4 +27,5 @@ def plot_wind_arrows(model, meshpoints, normalise=True, narrows=(12, 9), hide_be
         x, y = meshpoints
     plt.quiver(x[arrow_spacing], y[arrow_spacing],
             np.ma.masked_where(velnorm.T < hide_below, (u / np.sqrt(velmax**2 - v**2)).T)[arrow_spacing],
-            np.ma.masked_where(velnorm.T < hide_below, (v / np.sqrt(velmax**2 - u**2)).T)[arrow_spacing], pivot='mid', scale=20, width=0.002)
+            np.ma.masked_where(velnorm.T < hide_below, (v / np.sqrt(velmax**2 - u**2)).T)[arrow_spacing], 
+            **plotargs)
