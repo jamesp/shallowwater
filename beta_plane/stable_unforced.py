@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy.signal
 
-from nonlinear import PeriodicShallowWater
+from shallowwater import PeriodicShallowWater
 from spectral_analysis import kiladis_spectra, background
 
 nx = 128
